@@ -97,7 +97,40 @@ jobs:
       - name: Compile installable APK
         working-directory: android
         run: gradle --no-daemon assembleDebug
-      - run: cp android/app/build/outputs/apk/debug/app-debug.apk Bingr-Track-Android.apk
+      - name: Sign with the fixed Bingr Track key
+        env:
+          APK_KEY: ${{ secrets.APK_KEY }}
+          APK_KEYSTORE_PASSWORD: ${{ secrets.APK_KEYSTORE_PASSWORD }}
+          APK_KEY_PASSWORD: ${{ secrets.APK_KEY_PASSWORD }}
+          APK_KEY_ALIAS: ${{ vars.APK_KEY_ALIAS }}
+          APK_CERT_SHA256: ${{ vars.APK_CERT_SHA256 }}
+        run: |
+          set -euo pipefail
+          if [ -z "$APK_KEY" ] || [ -z "$APK_KEYSTORE_PASSWORD" ]; then
+            echo "::error::Configure APK_KEY (Base64 keystore) and APK_KEYSTORE_PASSWORD in Bingr Track repository secrets."
+            exit 1
+          fi
+          umask 077
+          keystore=$(mktemp "${RUNNER_TEMP}/bingr-track-key.XXXXXX")
+          trap 'rm -f "$keystore"' EXIT
+          printf '%s' "$APK_KEY" | base64 --decode > "$keystore"
+          export APK_KEY_PASSWORD="${APK_KEY_PASSWORD:-$APK_KEYSTORE_PASSWORD}"
+          sdk="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+          apksigner="$sdk/build-tools/35.0.0/apksigner"
+          args=(--ks "$keystore" --ks-pass env:APK_KEYSTORE_PASSWORD --key-pass env:APK_KEY_PASSWORD)
+          if [ -n "$APK_KEY_ALIAS" ]; then args+=(--ks-key-alias "$APK_KEY_ALIAS"); fi
+          "$apksigner" sign "${args[@]}" --out Bingr-Track-Android.apk android/app/build/outputs/apk/debug/app-debug.apk
+          certificates=$("$apksigner" verify --print-certs Bingr-Track-Android.apk)
+          fingerprint=$(awk -F ': ' '$1 == "Signer #1 certificate SHA-256 digest" {print tolower($2)}' <<< "$certificates")
+          [[ "$fingerprint" =~ ^[0-9a-f]{64}$ ]]
+          if [ -n "$APK_CERT_SHA256" ]; then
+            expected=${APK_CERT_SHA256//:/}
+            if [ "$fingerprint" != "${expected,,}" ]; then
+              echo "::error::Android signing certificate differs from APK_CERT_SHA256."
+              exit 1
+            fi
+          fi
+          printf 'Bingr Track Android certificate SHA-256: %s\n' "$fingerprint"
       - name: Verify Android version and shared interface
         run: |
           version=$(awk '$1 == "TRACK_VERSION" {print $3}' TrackVersion.xcconfig)
