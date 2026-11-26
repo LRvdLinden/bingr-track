@@ -20,7 +20,7 @@ jobs:
       - name: Generate project
         run: |
           brew install xcodegen
-          python3 -c 'import os; keys=("BINGR_SUPABASE_URL","BINGR_SUPABASE_PUBLISHABLE_KEY","TRACK_TRAKT_CLIENT_ID"); print("\n".join(k + " = " + os.environ[k].replace("://", ":$()/"+"/") for k in keys))' > Config.local.xcconfig
+          python3 -c 'import os; keys=("BINGR_SUPABASE_URL","BINGR_SUPABASE_PUBLISHABLE_KEY","TRACK_TRAKT_CLIENT_ID"); print("\n".join(k + " = " + os.environ[k].replace("://", ":$()/"+"/") for k in keys if os.environ.get(k)))' > Config.local.xcconfig
           xcodegen generate
       - name: Compile iOS and iPadOS
         run: xcodebuild -project BingrTrack.xcodeproj -scheme BingrTrack -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build -quiet

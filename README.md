@@ -6,7 +6,7 @@ Voor de kalender, kijkgeschiedenis en watchlist van Trakt gebruikt Track optione
 
 ## Bouwen
 
-Zet de GitHub Actions-variabelen `BINGR_SUPABASE_URL`, `BINGR_SUPABASE_PUBLISHABLE_KEY` en optioneel `TRACK_TRAKT_CLIENT_ID` in deze repository. Gebruik alleen de publieke Supabase anon/publishable key. De bestaande Bingr-app en Supabase-configuratie krijgen hiervoor geen wijzigingen.
+De publieke Bingr-configuratie staat ingesteld. GitHub Actions-variabelen `BINGR_SUPABASE_URL` en `BINGR_SUPABASE_PUBLISHABLE_KEY` kunnen die waarden overschrijven. Stel `TRACK_TRAKT_CLIENT_ID` in voor Trakt. De bestaande Bingr-app en Supabase-configuratie krijgen hiervoor geen wijzigingen.
 
 - Apple: installeer XcodeGen, voer `xcodegen generate` uit en open `BingrTrack.xcodeproj`. Vul voor een lokale build `Config.local.xcconfig` met dezelfde waarden als de buildvariabelen of gebruik de geconfigureerde ZIP uit Actions. Kies je Apple Developer Team voor installatie op een echt toestel.
 - Android: bouw vanuit `android/` met Gradle 8.13, JDK 17 en Android SDK 35, via `gradle assembleDebug`. De GitHub Actions-workflow levert een installeerbare debug-APK op. Bij lokaal bouwen leest Gradle de drie openbare configuratiewaarden uit de omgeving.
