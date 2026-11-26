@@ -233,16 +233,7 @@ function external(item) {
   return native("open",{url:"https://bingr.online/titel/?" + query});
 }
 function imageURL(item) {
-  if (typeof item.artwork === "string" && item.artwork.startsWith("https://image.tmdb.org/")) return item.artwork;
-  const image = item.images?.poster?.[0];
-  if (!profile?.kids && typeof image === "string") {
-    try {
-      const url = new URL(image.includes("://") ? image : "https://" + image);
-      if (url.protocol === "https:" && ["image.tmdb.org","walter-r2.trakt.tv","images.trakt.tv"].includes(url.hostname))
-        return url.href;
-    } catch {}
-  }
-  return null;
+  return typeof item.artwork === "string" && item.artwork.startsWith("https://image.tmdb.org/") ? item.artwork : null;
 }
 function kindLabel(item) {
   return ({movie:"Film",episode:"Aflevering",series:"Serie",show:"Serie",live:"Live-tv"})[item.type] || "";
@@ -345,7 +336,7 @@ function discover(history) {
   main.append(form,results);
   const local = [...progressItems(), ...listedItems(history), ...history].filter(item => item.title && item.type !== "live");
   const revision = screenRevision;
-  let searchCount = 0;
+  let searchCount = 0, trendingCount = 0;
   form.onsubmit = async event => {
     event.preventDefault();
     const id = ++searchCount, query = input.value.trim();
@@ -363,7 +354,7 @@ function discover(history) {
     cards(matches,"Geen titels gevonden in je kijkgegevens.",results);
     if (!settings.trakt || profile.kids) return;
     try {
-      const found = await traktAPI("/search/movie,show?query=" + encodeURIComponent(query) + "&extended=full,images&limit=16",false);
+      const found = await traktAPI("/search/movie,show?query=" + encodeURIComponent(query) + "&extended=full&limit=16",false);
       if (revision !== screenRevision || id !== searchCount) return;
       results.append(el("h2","Op Trakt"));
       filters(found.map(traktItem).filter(Boolean),results,"Geen titels gevonden op Trakt.");
@@ -373,15 +364,15 @@ function discover(history) {
     const featured = el("div");
     const buttons = el("div",null,"filter-row");
     async function trending(type) {
-      const id = ++searchCount;
+      const id = ++trendingCount;
       featured.replaceChildren(el("p","Titels laden…","empty"));
       try {
-        const rows = await traktAPI("/" + type + "/trending?extended=full,images&limit=12",false);
-        if (revision !== screenRevision || id !== searchCount) return;
+        const rows = await traktAPI("/" + type + "/trending?extended=full&limit=12",false);
+        if (revision !== screenRevision || id !== trendingCount) return;
         featured.replaceChildren();
         cards(rows.map(traktItem).filter(Boolean),"Er zijn geen titels beschikbaar.",featured);
       } catch (e) {
-        if (revision === screenRevision && id === searchCount) featured.replaceChildren(el("p",e.message,"empty"));
+        if (revision === screenRevision && id === trendingCount) featured.replaceChildren(el("p",e.message,"empty"));
       }
     }
     buttons.append(button("Trending films",() => trending("movies")),button("Trending series",() => trending("shows")));
@@ -434,7 +425,7 @@ async function render(name) {
     const date = new Date();
     const local = new Date(date.getTime() - date.getTimezoneOffset()*60000).toISOString().slice(0,10);
     main.append(el("p","Komende 14 dagen"));
-    const result = await traktAPI("/calendars/my/shows/" + local + "/14?extended=images");
+    const result = await traktAPI("/calendars/my/shows/" + local + "/14");
     if (revision !== screenRevision) return;
     grouped(result.filter(item => item.show && item.episode).map(item => ({
       ...traktItem(item),day:item.first_aired
