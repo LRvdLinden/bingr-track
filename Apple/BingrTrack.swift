@@ -3,6 +3,7 @@ import WebKit
 import CryptoKit
 import CommonCrypto
 import Security
+import LocalAuthentication
 
 @main
 struct BingrTrackApp: App {
@@ -44,6 +45,7 @@ struct TrackView: UIViewRepresentable {
 
 final class TrackBridge: NSObject, ObservableObject, WKScriptMessageHandler, WKNavigationDelegate {
     weak var view: WKWebView?
+    private let vault = FaceIDVault()
 
     private var config: [String: String] {
         ["url": setting("BingrURL"), "key": setting("BingrPublishableKey"), "trakt": setting("TraktClientID")]
@@ -76,7 +78,10 @@ final class TrackBridge: NSObject, ObservableObject, WKScriptMessageHandler, WKN
               let id = body["id"] as? Int, let action = body["action"] as? String else { return }
         switch action {
         case "config":
-            reply(id, config)
+            var values: [String: Any] = config
+            values["faceID"] = vault.available
+            values["faceIDEnabled"] = vault.enabled
+            reply(id, values)
         case "open":
             guard let raw = body["url"] as? String, let url = URL(string: raw), url.scheme == "https",
                   ["bingr.online", "trakt.tv"].contains(url.host ?? "") else { fail(id); return }
@@ -91,6 +96,22 @@ final class TrackBridge: NSObject, ObservableObject, WKScriptMessageHandler, WKN
                 let valid = Self.verify(pin, hash)
                 DispatchQueue.main.async { self.reply(id, valid) }
             }
+        case "enableFaceID":
+            guard let token = body["token"] as? String else { fail(id); return }
+            vault.authenticate { context in
+                guard let context else { self.reply(id, false); return }
+                self.reply(id, self.vault.enable(token, context: context))
+            }
+        case "readFaceID":
+            vault.authenticate { context in
+                let token = context.flatMap { self.vault.read(context: $0) }
+                self.reply(id, token.map { $0 as Any } ?? NSNull())
+            }
+        case "updateFaceID":
+            guard let token = body["token"] as? String else { fail(id); return }
+            reply(id, vault.update(token))
+        case "disableFaceID":
+            reply(id, vault.disable())
         case "request":
             send(body, id)
         default:

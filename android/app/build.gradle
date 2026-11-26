@@ -7,8 +7,8 @@ android {
         applicationId 'nl.lrvdlinden.bingrtrack'
         minSdk 26
         targetSdk 35
-        versionCode 2
-        versionName '1.0.1'
+        versionCode 3
+        versionName '1.0.2'
         resValue 'string', 'bingr_url', System.getenv('BINGR_SUPABASE_URL') ?: 'https://vjewsncmsxmhmhnoxwqx.supabase.co'
         resValue 'string', 'bingr_key', System.getenv('BINGR_SUPABASE_PUBLISHABLE_KEY') ?: 'sb_publishable_lpIup6Omq5kW2k3oICGZ4g_HPGac5A3'
         resValue 'string', 'trakt_id', System.getenv('TRACK_TRAKT_CLIENT_ID') ?: ''

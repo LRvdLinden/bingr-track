@@ -2,7 +2,7 @@
 
 Companion voor iPhone, iPad en Android-telefoons en -tablets. Track leest bestaande Bingr-profielen, voortgang, Mijn lijst en kijkgeschiedenis. De app gebruikt uitsluitend de bestaande inlog- en leesroutes. Titels openen via de bestaande Bingr-web/app-link. Titels in Mijn lijst waarvoor de sync alleen een ID aanbiedt, worden waar mogelijk gekoppeld aan de ontvangen kijkgegevens.
 
-Voor de kalender, kijkgeschiedenis en watchlist van Trakt gebruikt Track optioneel een eigen Trakt OAuth-sessie. Registreer daarvoor een client met de redirect URI `bingrtrack://oauth/trakt`. De app gebruikt Authorization Code met PKCE. Bingr en Trakt vragen na een koude start opnieuw om inloggen. Track biedt alleen-lezen toegang tot Bingr-kijkgegevens.
+Voor de kalender, kijkgeschiedenis en watchlist van Trakt gebruikt Track optioneel een eigen Trakt OAuth-sessie. Registreer daarvoor een client met de redirect URI `bingrtrack://oauth/trakt`. De app gebruikt Authorization Code met PKCE. Op iPhone en iPad kun je in Profiel Face ID inschakelen om je Bingr-sessie bij een volgende start te herstellen. Android en Trakt vragen na een koude start opnieuw om inloggen. Track biedt alleen-lezen toegang tot Bingr-kijkgegevens.
 
 ## Bouwen
 

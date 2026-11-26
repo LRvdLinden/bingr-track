@@ -5,6 +5,8 @@ const notice = document.getElementById("notice");
 const tabs = ["Vandaag", "Mijn lijst", "Kalender", "Geschiedenis", "Profiel"];
 let sequence = 0, settings, session, profile, shared, trakt, pending, tab = tabs[0];
 const waiting = new Map();
+let faceIDEnabled = false;
+let unlocking = false;
 window.reply = (id, result) => {
   const job = waiting.get(id);
   if (!job) return;
@@ -66,9 +68,17 @@ async function device(action, data = {}) {
   try { return await run(); } catch (e) {
     if (e.status !== 401) throw e;
     if (!refreshing) refreshing = bingr("/auth/v1/token?grant_type=refresh_token", {refresh_token:session.refresh_token})
-      .then(value => session = value).finally(() => refreshing = null);
+      .then(async value => {
+        session = value;
+        if (faceIDEnabled) await rememberRefreshToken();
+        return value;
+      }).finally(() => refreshing = null);
     try { await refreshing; } catch (refreshError) {
-      if ([400,401].includes(refreshError.status)) { session = profile = shared = null; login(); }
+      if ([400,401].includes(refreshError.status)) {
+        await clearFaceID();
+        session = profile = shared = null;
+        login();
+      }
       throw refreshError;
     }
     return run();
@@ -113,11 +123,13 @@ function login() {
         session = await bingr("/auth/v1/token?grant_type=password",body);
       }
       if (!session?.access_token || !session?.refresh_token) throw new Error("Bingr heeft geen geldige sessie teruggestuurd.");
+      await clearFaceID();
       password.value = "";
       await profiles();
     } catch (e) { error(e); } finally { submit.disabled = false; }
   };
   main.append(form);
+  if (faceIDEnabled) main.append(button("Ontgrendel met Face ID", unlockWithFaceID, true));
 }
 async function profiles() {
   profile = shared = trakt = pending = null;
@@ -137,7 +149,7 @@ async function profiles() {
 }
 async function logout() {
   try { if (session) await bingr("/auth/v1/logout?scope=local",{},true); }
-  finally { session = profile = shared = trakt = pending = null; login(); }
+  finally { await clearFaceID(); session = profile = shared = trakt = pending = null; login(); }
 }
 async function state(p) {
   const section = "profile." + p.id;
@@ -273,6 +285,14 @@ async function render(name) {
     })),"Geen geplande afleveringen in de komende 14 dagen.");
   } else {
     main.append(el("h2",profile.name),button("Wissel profiel",profiles),button("Uitloggen",logout));
+    if (settings.faceID) {
+      main.append(el("h2","Face ID"),button(faceIDEnabled ? "Schakel Face ID uit" : "Schakel Face ID in", async () => {
+        if (faceIDEnabled) await clearFaceID();
+        else if (await native("enableFaceID",{token:session.refresh_token})) faceIDEnabled = true;
+        else throw new Error("Face ID kon niet worden ingeschakeld.");
+        await render("Profiel");
+      }));
+    }
     if (!profile.kids) {
       main.append(el("h2","Trakt"));
       if (trakt) main.append(el("p","Verbonden voor deze sessie"),button("Ontkoppel Track",() => { trakt = null; return render(tab); }));
@@ -330,4 +350,47 @@ async function traktAPI(path) {
     throw e;
   }
 }
-native("config").then(value => {settings = {...value,url:value.url.replace(/\/$/,"")}; login();}).catch(error);
+async function clearFaceID() {
+  if (!settings?.faceID && !faceIDEnabled) return;
+  await native("disableFaceID");
+  faceIDEnabled = false;
+}
+async function rememberRefreshToken() {
+  try {
+    if (await native("updateFaceID",{token:session.refresh_token})) return;
+  } catch {}
+  await clearFaceID();
+}
+async function unlockWithFaceID() {
+  if (unlocking) return;
+  unlocking = true;
+  try {
+    const token = await native("readFaceID");
+    if (!token) return;
+    try {
+      session = await bingr("/auth/v1/token?grant_type=refresh_token",{refresh_token:token});
+    } catch (e) {
+      if ([400,401].includes(e.status)) {
+        await clearFaceID();
+        login();
+        throw new Error("Je Bingr-sessie is verlopen. Log opnieuw in met je wachtwoord.");
+      }
+      throw e;
+    }
+    await rememberRefreshToken();
+    await profiles();
+  } finally { unlocking = false; }
+}
+async function launch() {
+  const delay = new Promise(resolve => setTimeout(resolve,3500));
+  try {
+    const value = await native("config");
+    settings = {...value,url:value.url.replace(/\/$/,"")};
+    faceIDEnabled = Boolean(value.faceIDEnabled);
+    await delay;
+    login();
+    if (faceIDEnabled) void unlockWithFaceID().catch(error);
+  } catch (e) { await delay; error(e); }
+  finally { document.getElementById("splash").hidden = true; }
+}
+void launch();
