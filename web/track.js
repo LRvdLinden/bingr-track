@@ -1,9 +1,10 @@
 "use strict";
 const main = document.getElementById("main");
 const nav = document.getElementById("nav");
+const profileShortcut = document.getElementById("profile-shortcut");
 const notice = document.getElementById("notice");
 const tabs = ["Vandaag", "Ontdek", "Mijn lijst", "Kalender", "Profiel"];
-const tabIcons = ["⌂", "⌕", "▤", "▦", "●"];
+const tabIcons = ["⌂", "⌕", "▤", "▦", "◯"];
 let screenRevision = 0;
 let bingrTrakt = null;
 let traktConfigFailed = false;
@@ -96,6 +97,16 @@ function screen(title, showNav = Boolean(profile)) {
   main.replaceChildren(el("h1",title));
   nav.hidden = !showNav;
   nav.replaceChildren();
+  profileShortcut.hidden = !showNav || !profile;
+  profileShortcut.replaceChildren();
+  if (!profileShortcut.hidden) {
+    const shortcut = button("",profiles);
+    shortcut.className = "profile-shortcut-button";
+    shortcut.setAttribute("aria-label","Wissel profiel, huidig profiel " + profile.name);
+    shortcut.title = "Wissel profiel";
+    shortcut.append(profileAvatar(profile));
+    profileShortcut.append(shortcut);
+  }
   if (showNav) tabs.forEach((name,index) => {
     const b = button(name, () => render(name));
     const icon = el("span",tabIcons[index],"tab-icon");
