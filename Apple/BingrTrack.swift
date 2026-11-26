@@ -55,7 +55,7 @@ final class TrackBridge: NSObject, ObservableObject, WKScriptMessageHandler, WKN
 
     func invoke(_ function: String, _ arguments: [Any]) {
         view?.callAsyncJavaScript("window." + function + "(...values)", arguments: ["values": arguments],
-                                   in: nil, contentWorld: .page, completionHandler: nil)
+                                   in: nil, in: .page, completionHandler: nil)
     }
 
     private func reply(_ id: Int, _ value: Any) {
