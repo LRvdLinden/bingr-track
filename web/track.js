@@ -3,8 +3,50 @@ const main = document.getElementById("main");
 const nav = document.getElementById("nav");
 const profileShortcut = document.getElementById("profile-shortcut");
 const notice = document.getElementById("notice");
-const tabs = ["Vandaag", "Ontdek", "Mijn lijst", "Kalender", "Profiel"];
-const tabIcons = ["⌂", "⌕", "▤", "▦", "◯"];
+const tabs = [["Home","home"],["Ontdek","discover"],["Lijsten","lists"],["Profiel","person"],["Zoeken","search"]];
+const parentTabs = {Kalender:"Home",Geschiedenis:"Home","Mijn lijst":"Lijsten"};
+let listMode = "Watchlist";
+const strokes = {
+  home:"M3 10l9-7 9 7v10H3zM9 20v-6h6v6",
+  discover:"M12 2c0 5-2 8-8 10 6 2 8 5 8 10 0-5 2-8 8-10-6-2-8-5-8-10Z",
+  lists:"M8 5h13M8 12h13M8 19h13M3 5h.1M3 12h.1M3 19h.1",
+  person:"M16 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0ZM4 21v-2a5 5 0 0 1 5-5h6a5 5 0 0 1 5 5v2z",
+  search:"M20 20l-4.5-4.5M17 10.5a6.5 6.5 0 1 1-13 0 6.5 6.5 0 0 1 13 0Z",
+  arrow:"M9 5l7 7-7 7",
+  back:"M15 5l-7 7 7 7",
+  close:"M6 6l12 12M18 6 6 18",
+  play:"M7 4v16l14-8Z",
+  plus:"M12 5v14M5 12h14",
+  check:"M5 12l4 4L19 6",
+  collection:"M4 6h12v13H4zM8 3h12v13M7 12h6M10 9v6",
+  thumb:"M7 21H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h3m0 12V9l5-6a2 2 0 0 1 2.2 2.8L13 9h6a2 2 0 0 1 2 2.4l-1.5 8A2 2 0 0 1 17.5 21H7Z"
+};
+function glyph(name,selected = false) {
+  const ns = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(ns,"svg");
+  const path = document.createElementNS(ns,"path");
+  svg.setAttribute("viewBox","0 0 24 24");
+  svg.setAttribute("aria-hidden","true");
+  svg.classList.add("ui-glyph");
+  if (name === "down") svg.classList.add("glyph-down");
+  path.setAttribute("d",strokes[name === "down" ? "thumb" : name]);
+  path.setAttribute("fill",selected ? "currentColor" : "none");
+  path.setAttribute("stroke","currentColor");
+  path.setAttribute("stroke-width","1.75");
+  path.setAttribute("stroke-linecap","round");
+  path.setAttribute("stroke-linejoin","round");
+  svg.append(path);
+  return svg;
+}
+function iconButton(name,label,run,selected = false,compact = false) {
+  const control = button("",run);
+  control.className = compact ? "bingr-quick-action" : "bingr-circle-action";
+  control.append(glyph(name,selected));
+  if (compact) control.append(el("span",label));
+  control.setAttribute("aria-label",label);
+  control.title = label;
+  return control;
+}
 let screenRevision = 0;
 let bingrTrakt = null;
 let traktConfigFailed = false;
@@ -17,7 +59,7 @@ let bingrTraktExpired = false;
 const traktLists = new Map();
 const traktClient = () => trakt?.source === "bingr" ? bingrTrakt?.id : settings.trakt || bingrTrakt?.id;
 const canLinkTrakt = () => Boolean(settings.trakt || bingrTrakt?.secret);
-let sequence = 0, settings, session, profile, shared, trakt, pending, tab = tabs[0];
+let sequence = 0, settings, session, profile, shared, trakt, pending, tab = tabs[0][0];
 const waiting = new Map();
 let faceIDEnabled = false;
 let unlocking = false;
@@ -117,14 +159,13 @@ function screen(title, showNav = Boolean(profile)) {
     shortcut.append(profileAvatar(profile));
     profileShortcut.append(shortcut);
   }
-  if (showNav) tabs.forEach((name,index) => {
-    const b = button(name, () => render(name));
-    const icon = el("span",tabIcons[index],"tab-icon");
-    icon.setAttribute("aria-hidden","true");
-    b.prepend(icon);
-    if (tab === name) b.setAttribute("aria-current","page");
+  if (showNav) for (const [name,icon] of tabs) {
+    const b = button(name,() => render(name));
+    b.prepend(glyph(icon));
+    if ((parentTabs[tab] || tab) === name) b.setAttribute("aria-current","page");
+    if (name === "Zoeken") b.classList.add("nav-search");
     nav.append(b);
-  });
+  }
 }
 function field(form, label, type, autocomplete) {
   const wrapper = el("label",label);
@@ -355,7 +396,7 @@ function enter(p,data,catalog,collections) {
   catalogMeta = catalog;
   collectionsState = collections;
   traktLoading = !p.kids;
-  void render("Vandaag").catch(error);
+  void render("Home").catch(error);
   void loadTraktConfig(p).then(() => {
     if (profile !== p) return;
     traktLoading = false;
@@ -423,27 +464,32 @@ function tmdbArt(path, width = "w780") {
   return /^\/[\w.-]+$/.test(path) ? "https://image.tmdb.org/t/p/" + width + path : null;
 }
 function mediaLink(buttonText, url) { return button(buttonText,() => native("open",{url})); }
-function showTitleDetails(panel, item, meta, ratings) {
+function showTitleDetails(panel, item, meta, ratings, intro, reviews) {
   panel.replaceChildren();
+  if (intro) intro.replaceChildren();
+  if (reviews) reviews.replaceChildren();
+  const hero = el("div",null,"bingr-detail-hero");
   const artwork = tmdbArt(meta?.backdrop,"w780") || tmdbArt(meta?.poster,"w342") || imageURL(item);
   if (artwork) {
     const image = el("img",null,"detail-art");
     image.alt = ""; image.src = artwork; image.referrerPolicy = "no-referrer";
-    image.onerror = () => image.remove(); panel.append(image);
+    image.onerror = () => image.remove(); hero.append(image);
   }
   const title = meta?.title?.nl || meta?.title?.en || item.title;
-  panel.append(el("h2",title));
+  hero.append(el("h2",title));
+  panel.append(hero);
   const duration = item.runtime > 0 ? item.runtime + " min" : null;
   const quickFacts = [kindLabel(item),meta?.year || item.year,duration,item.certification].filter(Boolean).join(" · ");
-  if (quickFacts) panel.append(el("p",quickFacts,"detail-facts"));
+  if (quickFacts) panel.append(el("p",quickFacts,"detail-facts detail-meta"));
   if (item.subtitle) panel.append(el("p",item.subtitle,"detail-facts"));
-  if (item.tagline) panel.append(el("p",item.tagline,"detail-tagline"));
+  const copy = intro || panel;
+  if (item.tagline) copy.append(el("p",item.tagline,"detail-tagline"));
   const summary = meta?.overview?.nl || meta?.overview?.en || item.overview;
-  if (summary) panel.append(el("p",summary,"detail-overview"));
+  if (summary) copy.append(el("p",summary,"detail-overview"));
   if (item.genres?.length) {
     const tags = el("div",null,"detail-tags");
     item.genres.slice(0,8).forEach(genre => tags.append(el("span",genre.replaceAll("-"," "))));
-    panel.append(tags);
+    copy.append(tags);
   }
   const valid = (ratings || []).filter(r => scoreLabels[r.source] && Number.isFinite(r.value));
   if (!valid.some(r => r.source === "trakt") && Number.isFinite(item.rating) && item.rating > 0)
@@ -458,7 +504,7 @@ function showTitleDetails(panel, item, meta, ratings) {
       score.append(el("small",scoreLabels[source]),el("strong",label));
       grid.append(score);
     }
-    panel.append(el("h3","Beoordelingen"),grid);
+    (reviews || panel).append(el("h3","Beoordelingen"),grid);
   }
   const links = el("div",null,"detail-links");
   const tmdb = Number(meta?.id || item.ids?.tmdb || item.tmdbId);
@@ -467,7 +513,7 @@ function showTitleDetails(panel, item, meta, ratings) {
   if (Number.isSafeInteger(tmdb) && tmdb > 0)
     links.append(mediaLink("TMDB","https://www.themoviedb.org/" + (isFilm ? "movie/" : "tv/") + tmdb));
   if (/^[a-z0-9-]+$/i.test(item.ids?.slug || "")) links.append(mediaLink("Trakt","https://trakt.tv/" + (isFilm ? "movies/" : "shows/") + item.ids.slug));
-  if (links.childElementCount) panel.append(links);
+  if (links.childElementCount) (reviews || panel).append(links);
 }
 const titleMetadataCache = new Map();
 async function bingrTitleMeta(item) {
@@ -552,30 +598,40 @@ function libraryButtons(panel,item,meta,selectedKey) {
     error(new Error("Opgeslagen in je Bingr-profiel."));
   };
   if (ratingKey) {
-    const group = el("div",null,"detail-links");
-    for (const [label,value] of [["👍 Omhoog",1],["👎 Omlaag",-1]]) {
-      const control = button(label,() => update(section,(latest,at) =>
-        trackLibrary.setRating(latest,ratingKey,trackLibrary.rating(latest,ratingKey) === value ? 0 : value,at)));
-      control.setAttribute("aria-pressed",String(trackLibrary.rating(shared,ratingKey) === value));
+    const group = el("div",null,"bingr-action-row");
+    for (const [name,label,value] of [["thumb","Vind ik leuk",1],["down","Niet voor mij",-1]]) {
+      const selected = trackLibrary.rating(shared,ratingKey) === value;
+      const control = iconButton(name,label,() => update(section,(latest,at) =>
+        trackLibrary.setRating(latest,ratingKey,trackLibrary.rating(latest,ratingKey) === value ? 0 : value,at)),selected);
+      control.setAttribute("aria-pressed",String(selected));
       group.append(control);
     }
-    panel.append(el("h3","Voor jou in Bingr"),group);
+    panel.append(group);
+
   }
   if (!targets.length) {
     if (["movie","series","show"].includes(item.type)) panel.append(el("p","Voor Mijn lijst en collecties is een overeenkomende titel in je gesynchroniseerde Bingr-bibliotheek nodig.","detail-facts"));
     return;
   }
-  panel.append(el("h3","Mijn Bingr-bibliotheek"));
-  const controls = el("div",null,"detail-links");
+  const controls = el("div",null,"bingr-library-actions");
   panel.append(controls);
   function draw(target) {
     controls.replaceChildren();
-    controls.append(button(trackLibrary.saved(shared,target.key) ? "Uit Mijn lijst" : "In Mijn lijst",() =>
-      update(section,(latest,at) => trackLibrary.setSaved(latest,target.key,!trackLibrary.saved(latest,target.key),at),target.key)));
+    const saved = trackLibrary.saved(shared,target.key);
+    const listControl = iconButton(saved ? "check" : "plus","Mijn lijst",() =>
+      update(section,(latest,at) => trackLibrary.setSaved(latest,target.key,!trackLibrary.saved(latest,target.key),at),target.key),false,true);
+    listControl.setAttribute("aria-pressed",String(saved));
+    const row = el("div",null,"bingr-action-row");
+    row.append(listControl);
+    controls.append(row);
+    const picker = el("details",null,"bingr-collection-picker");
+    const summary = el("summary","Collecties");
+    summary.prepend(glyph("collection"));
+    picker.append(summary);
     for (const collection of trackLibrary.collectionItems(collectionsState,profile)) {
       if (collection.deleted || collection.deletedAt || collection.kind !== "manual") continue;
       const present = trackLibrary.collectionHas(collection,target);
-      controls.append(button((present ? "Verwijder uit " : "Voeg toe aan ") + collection.name,() =>
+      picker.append(button((present ? "Verwijder uit " : "Voeg toe aan ") + collection.name,() =>
         update("collections",(latest,at) => trackLibrary.updateCollections(latest,profile,items => {
           const active = items.find(row => row.id === collection.id && !row.deleted && !row.deletedAt);
           if (!active) throw new Error("Deze collectie is niet meer beschikbaar.");
@@ -583,6 +639,7 @@ function libraryButtons(panel,item,meta,selectedKey) {
             trackLibrary.setCollectionMember(row,target,!trackLibrary.collectionHas(row,target),at));
         },at),target.key)));
     }
+    if (picker.childElementCount > 1) controls.append(picker);
   }
   if (targets.length > 1) {
     const label = el("label","Bingr-server ");
@@ -657,12 +714,19 @@ function renderCollections(history) {
 }
 async function detail(item) {
   const dialog = el("dialog",null,"detail media-detail");
-  const panel = el("div"), actions = el("div",null,"detail-links"), library = el("div"), social = el("div");
+  const panel = el("div"), actions = el("div",null,"bingr-detail-actions"), library = el("div"), social = el("details",null,"detail-extra"), description = el("div",null,"detail-copy"), reviews = el("div",null,"detail-review");
   let current = item, foundMeta;
-  showTitleDetails(panel,item,null,[]);
-  dialog.append(button("Sluiten",() => { dialog.close(); if (tab === "Mijn lijst") return render(tab); }),panel,actions,library,social);
-  if (item.title && item.type !== "live") actions.append(button("Open in Bingr",() =>
-    external({...current,tmdbId:foundMeta?.id || current.tmdbId}),true));
+  showTitleDetails(panel,item,null,[],description,reviews);
+  const close = iconButton("close","Sluiten",() => { dialog.close(); if (tab === "Lijsten" || tab === "Mijn lijst") return render(tab); });
+  close.classList.add("detail-dismiss");
+  social.append(el("summary","Seizoenen, reacties en Trakt-acties"));
+  social.hidden = true;
+  dialog.append(panel,close,actions,library,description,reviews,social);
+  if (item.title && item.type !== "live") {
+    const open = button("Open in Bingr",() => external({...current,tmdbId:foundMeta?.id || current.tmdbId}),true);
+    open.prepend(glyph("play",true));
+    actions.append(open);
+  }
   dialog.addEventListener("close", () => dialog.remove(), {once:true});
   main.append(dialog);
   dialog.showModal();
@@ -674,12 +738,15 @@ async function detail(item) {
   if (!dialog.open || !dialog.isConnected) return;
   current = await enrichTitle(item,foundMeta);
   if (!dialog.open || !dialog.isConnected) return;
-  showTitleDetails(panel,current,foundMeta,[]);
+  showTitleDetails(panel,current,foundMeta,[],description,reviews);
   libraryButtons(library,current,foundMeta);
-  if (traktClient() && !profile?.kids) traktTitleActions(social,current);
+  if (traktClient() && !profile?.kids) {
+    traktTitleActions(social,current);
+    social.hidden = social.childElementCount <= 1;
+  }
   const ratings = await titleRatings(current,foundMeta);
   if (!dialog.open || !dialog.isConnected) return;
-  showTitleDetails(panel,current,foundMeta,ratings);
+  showTitleDetails(panel,current,foundMeta,ratings,description,reviews);
   if (foundMeta || current.overview || ratings.length) status.remove();
   else status.textContent = "Voor deze titel is geen extra informatie beschikbaar.";
 }
@@ -710,14 +777,14 @@ function insertArtwork(card, art) {
   const img = el("img"); img.alt = ""; img.src = art; img.loading = "lazy"; img.referrerPolicy = "no-referrer";
   img.onerror = () => img.remove(); card.prepend(img);
 }
-function cards(items, empty, container = main) {
+function cards(items, empty, container = main, layout = "") {
   if (!items.length) { container.append(el("p",empty,"empty")); return; }
-  const grid = el("div",null,"grid");
+  const grid = el("div",null,"grid" + (layout ? " " + layout : ""));
   for (const item of items) {
     const card = el("article",null,"card");
     const art = imageURL(item);
     if (art) insertArtwork(card,art);
-    else if (item.ids?.tmdb && artworkObserver) {
+    else if ((item.ids?.tmdb || item.tmdbId || (layout && item.title && item.type !== "live")) && artworkObserver) {
       pendingArtwork.set(card,item);
       artworkObserver.observe(card);
     }
@@ -879,7 +946,7 @@ function discover(history) {
   main.append(form,results);
   const local = [...progressItems(), ...listedItems(history), ...history, ...(profile.kids ? [] : trackLibrary.catalogTitles(catalogMeta))].filter(item => item.title && item.type !== "live");
   const revision = screenRevision;
-  let searchCount = 0, trendingCount = 0;
+  let searchCount = 0;
   form.onsubmit = async event => {
     event.preventDefault();
     const id = ++searchCount, query = input.value.trim();
@@ -903,26 +970,7 @@ function discover(history) {
       filters(found.map(traktItem).filter(Boolean),results,"Geen titels gevonden op Trakt.");
     } catch (e) { if (revision === screenRevision && id === searchCount) error(e); }
   };
-  if (traktClient() && !profile.kids) {
-    const featured = el("div");
-    const buttons = el("div",null,"filter-row");
-    async function trending(type,category = "trending") {
-      const id = ++trendingCount;
-      featured.replaceChildren(el("p","Titels laden…","empty"));
-      try {
-        const rows = await traktAPI("/" + type + "/" + category + "?extended=full&limit=12",false);
-        if (revision !== screenRevision || id !== trendingCount) return;
-        featured.replaceChildren();
-        cards(rows.map(row => traktItem(row) || traktItem(type === "movies" ? {movie:row} : {show:row})).filter(Boolean),"Er zijn geen titels beschikbaar.",featured);
-      } catch (e) {
-        if (revision === screenRevision && id === trendingCount) featured.replaceChildren(el("p",e.message,"empty"));
-      }
-    }
-    buttons.append(button("Trending films",() => trending("movies")),button("Trending series",() => trending("shows")));
-    buttons.append(button("Populaire films",() => trending("movies","popular")),button("Populaire series",() => trending("shows","popular")),button("Verwachte films",() => trending("movies","anticipated")),button("Verwachte series",() => trending("shows","anticipated")));
-    main.append(el("h2","Ontdek op Trakt"),buttons,featured);
-    void trending("movies");
-  }
+
 }
 function traktItem(entry) {
   const media = entry.movie || entry.show || entry.episode;
@@ -985,52 +1033,135 @@ async function nextOnTrakt() {
   if (results.length && results.every(x => x.status === "rejected")) throw results[0].reason;
   return results.map(x => x.value).filter(Boolean);
 }
+function modeBar(modes, selected, select) {
+  const bar = el("div",null,"track-modes");
+  for (const mode of modes) {
+    const control = button(mode,() => select(mode));
+    control.setAttribute("aria-pressed",String(mode === selected));
+    bar.append(control);
+  }
+  main.append(bar);
+}
+function homeMode(selected) {
+  const routes = {Media:"Home",Kalender:"Kalender",Activiteit:"Geschiedenis"};
+  modeBar(Object.keys(routes),selected,mode => render(routes[mode]));
+}
+function shelf(title, items, empty, layout, open, container = main) {
+  const group = el("section",null,"track-shelf");
+  const heading = el("div",null,"shelf-heading");
+  heading.append(el("h2",title));
+  if (open || items.length > 6) heading.append(iconButton("arrow","Bekijk " + title.toLowerCase(),
+    open || (() => {
+      screen(title);
+      main.append(iconButton("back","Terug",() => render(tab)));
+      cards(items,empty);
+    })));
+  group.append(heading);
+  cards(items.slice(0,12),empty,group,"shelf-" + layout);
+  container.append(group);
+}
+function asyncShelf(title, fetch, empty, layout, open) {
+  showTraktSection(title,fetch,empty,(items,message,container) => {
+    if (open) container.append(button("Bekijk schema",open));
+    cards(items.slice(0,12),message,container,"shelf-" + layout);
+  });
+}
+function upcomingRows() {
+  const now = new Date();
+  const local = new Date(now.getTime() - now.getTimezoneOffset()*60000).toISOString().slice(0,10);
+  return traktRows("/calendars/my/shows/" + local + "/14").then(rows => rows
+    .filter(row => row.show && row.episode && row.first_aired).map(row => {
+      const item = traktItem(row);
+      return {...item,day:row.first_aired,subtitle:[item?.subtitle,dateLabel(row.first_aired,{weekday:"short",day:"numeric",month:"short"})].filter(Boolean).join(" · ")};
+    }));
+}
+function explore() {
+  if (!traktClient() || profile.kids) {
+    main.append(button("Zoeken in Bingr",() => render("Zoeken"),true));
+    if (!profile.kids) main.append(el("p",traktLoading ? "Trakt-koppeling controleren…" : "Koppel Trakt in Profiel om trends en nieuwe titels te ontdekken."));
+    return;
+  }
+  const container = el("div");
+  const revision = screenRevision;
+  let requestID = 0;
+  function load(type) {
+    const id = ++requestID;
+    container.replaceChildren();
+    for (const [category,title] of [["trending","Trending"],["popular","Populair"],["anticipated","Verwacht"]]) {
+      const slot = el("div");
+      slot.append(el("h2",title),el("p","Titels laden…"));
+      container.append(slot);
+      void traktAPI("/" + type + "/" + category + "?extended=full&limit=14",false).then(rows => {
+        if (revision !== screenRevision || id !== requestID) return;
+        slot.replaceChildren();
+        const items = rows.map(row => traktItem(row) || traktItem(type === "movies" ? {movie:row} : {show:row})).filter(Boolean);
+        shelf(title,items,"Er zijn geen titels beschikbaar.","poster",null,slot);
+      }).catch(e => {
+        if (revision === screenRevision && id === requestID) slot.replaceChildren(el("h2",title),el("p",e.message));
+      });
+    }
+  }
+  const bar = el("div",null,"track-modes");
+  for (const [label,type] of [["Films","movies"],["Series","shows"]]) {
+    const control = button(label,() => {
+      for (const child of bar.children) child.setAttribute("aria-pressed",String(child === control));
+      load(type);
+    });
+    control.setAttribute("aria-pressed",String(type === "movies"));
+    bar.append(control);
+  }
+  main.append(bar,container);
+  load("movies");
+}
 async function render(name) {
   if (!profile) return;
   tab = name;
   screen(name);
   const history = records("history");
-  if (name === "Vandaag") {
-    const hero = el("section",null,"dashboard");
-    hero.append(el("p",profile.name,"profile-name"),el("h2","Jouw kijkoverzicht"));
-    const metrics = el("div",null,"metrics");
-    for (const [amount,label] of [[progressItems().length,"Verder kijken"],[records("myList").length,"Mijn lijst"],[history.length,"Kijkmomenten"]]) {
-      const metric = el("div"); metric.append(el("strong",amount),el("span",label)); metrics.append(metric);
-    }
-    hero.append(metrics); main.append(hero,el("h2","Verder kijken"));
-    cards(progressItems().slice(0,12),"Je hebt nog geen titels om verder te kijken.");
-    main.append(el("h2","Recent bekeken"));
-    cards(history.slice(0,4),"Je kijkgeschiedenis is leeg.");
-    const actions = el("div",null,"actions");
-    actions.append(button("Hele kijkgeschiedenis",() => render("Geschiedenis")),button("Vernieuw",reload));
-    main.append(actions);
+  if (name === "Home" || name === "Vandaag") {
+    homeMode("Media");
+    const progress = progressItems();
+    const saved = listedItems(history).filter(item => item.title);
+    const recent = history.filter(item => item.title);
+    shelf("Verder kijken",progress,"Je hebt nog geen titels om verder te kijken.","landscape");
+    shelf("Begin met kijken",saved.filter(item => !progress.some(row =>
+      row.title === item.title || (row.tmdbId && row.tmdbId === item.tmdbId))),
+      "Bewaar een titel in Mijn lijst om hier te beginnen.","poster");
     if (!profile.kids && (trakt || traktLoading || bingrTraktExpired || canLinkTrakt())) {
-      showTraktSection("Volgende afleveringen op Trakt",nextOnTrakt,"Geen volgende afleveringen gevonden.");
-      if (trakt) showTraktSection("Recent bekeken op Trakt",async () => (await traktRows("/sync/history?limit=50")).map(traktActivity).filter(Boolean).slice(0,5),"Je Trakt-geschiedenis is leeg.");
+      asyncShelf("Uitzendschema",upcomingRows,"Geen geplande afleveringen in de komende 14 dagen.","landscape",() => render("Kalender"));
+      if (trakt) asyncShelf("Volgende afleveringen",nextOnTrakt,"Geen volgende afleveringen op Trakt.","landscape");
     }
+    shelf("Recent bekeken",recent,"Je kijkgeschiedenis is leeg.","poster",() => render("Geschiedenis"));
   } else if (name === "Ontdek") {
+    explore();
+  } else if (name === "Zoeken") {
     discover(history);
   } else if (name === "Geschiedenis") {
+    homeMode("Activiteit");
     grouped(history.slice(0,100).map(item => ({...item,subtitle:[item.subtitle,dateLabel(item.at ?? item.date,{timeStyle:"short"}),"Bingr"].filter(Boolean).join(" · ")})),"Je kijkgeschiedenis is leeg.");
     main.append(button("Vernieuw",reload));
     if (!profile.kids) showTraktSection("Trakt-geschiedenis",async () => (await traktRows("/sync/history?limit=50")).map(traktActivity).filter(Boolean),"Je Trakt-geschiedenis is leeg.",grouped);
-  } else if (name === "Mijn lijst") {
-    void renderMyList(history,screenRevision).catch(error);
-    renderCollections(history);
-    main.append(button("Vernieuw",reload));
-    if (trakt && !profile.kids) main.append(button("Mijn Trakt-lijsten",openTraktLists));
-    if (!profile.kids) showTraktSection("Trakt-watchlist",async () => (await traktRows("/sync/watchlist?limit=50")).map(row => ({...traktItem(row),source:"Trakt"})).filter(item => item.title),"Je Trakt-watchlist is leeg.",(items,empty,container) => filters(items,container,empty));
+  } else if (name === "Lijsten" || name === "Mijn lijst") {
+    const modes = profile.kids ? ["Watchlist","Collecties"] : ["Watchlist","Collecties","Trakt"];
+    if (!modes.includes(listMode)) listMode = "Watchlist";
+    modeBar(modes,listMode,value => { listMode = value; return render("Lijsten"); });
+    if (listMode === "Collecties") renderCollections(history);
+    else if (listMode === "Trakt") {
+      if (trakt) main.append(button("Mijn Trakt-lijsten",openTraktLists));
+      showTraktSection("Trakt-watchlist",async () => (await traktRows("/sync/watchlist?limit=50")).map(row => ({...traktItem(row),source:"Trakt"})).filter(item => item.title),"Je Trakt-watchlist is leeg.",(items,empty,container) => filters(items,container,empty));
+    } else {
+      void renderMyList(history,screenRevision).catch(error);
+      main.append(button("Vernieuw",reload));
+    }
   } else if (name === "Kalender") {
+    homeMode("Kalender");
     if (!trakt || profile.kids) {
       main.append(el("p",traktLoading ? "Trakt-koppeling controleren…" : "Koppel Trakt in Profiel om je uitzendkalender te zien.","empty"));
       if (!profile.kids) main.append(button("Naar Profiel", () => render("Profiel"), true));
       return;
     }
-    const date = new Date();
-    const local = new Date(date.getTime() - date.getTimezoneOffset()*60000).toISOString().slice(0,10);
     main.append(el("p","Komende 14 dagen"));
-    showTraktSection("Aankomende afleveringen",async () => (await traktRows("/calendars/my/shows/" + local + "/14"))
-      .filter(item => item.show && item.episode).map(item => ({...traktItem(item),source:"Trakt",day:item.first_aired})),
+    showTraktSection("Aankomende afleveringen",upcomingRows,
       "Geen geplande afleveringen in de komende 14 dagen.",grouped);
   } else {
     const actions = el("div",null,"actions");
