@@ -50,7 +50,7 @@ async function request(url, body, headers = {}, method = body == null ? "GET" : 
   const response = await native("request", {url, body, headers, method});
   if (response.status >= 200 && response.status < 300) return response.data;
   const err = new Error(response.status === 429 ? "Te veel verzoeken. Probeer het later opnieuw." :
-    ({invalid_credentials:"Controleer je e-mailadres en wachtwoord.", email_not_confirmed:"Bevestig eerst je e-mailadres."})[response.data?.error_code] ||
+    ({invalid_credentials:"Controleer je Bingr-e-mailadres en wachtwoord.", email_not_confirmed:"Bevestig eerst je Bingr-e-mailadres.", not_signed_in:"Je Bingr-sessie is verlopen. Log opnieuw in."})[response.data?.error_code ?? response.data?.code ?? response.data?.error] ||
     "De aanvraag is mislukt (" + response.status + ").");
   err.status = response.status;
   throw err;
@@ -105,13 +105,14 @@ function login() {
     event.preventDefault();
     submit.disabled = true;
     try {
-      if (!settings.url || !settings.key) throw new Error("Bingr-configuratie ontbreekt in deze build.");
+      if (!/^https:\/\/[a-z0-9.-]+$/i.test(settings.url) || !settings.key) throw new Error("Deze Track-build heeft geen geldige Bingr-configuratie.");
       const body = {email:email.value.trim(), password:password.value};
       try { session = await bingr("/functions/v1/login",body); }
       catch (e) {
         if (e.status !== 404) throw e;
         session = await bingr("/auth/v1/token?grant_type=password",body);
       }
+      if (!session?.access_token || !session?.refresh_token) throw new Error("Bingr heeft geen geldige sessie teruggestuurd.");
       password.value = "";
       await profiles();
     } catch (e) { error(e); } finally { submit.disabled = false; }
@@ -121,7 +122,12 @@ function login() {
 async function profiles() {
   profile = shared = trakt = pending = null;
   screen("Wie kijkt er?", false);
-  const result = await device("get_profiles");
+  let result;
+  try { result = await device("get_profiles"); }
+  catch (e) {
+    if (session) main.append(button("Probeer profielen opnieuw te laden",profiles,true),button("Uitloggen",logout));
+    throw new Error("Bingr-profielen konden niet worden geladen. " + e.message);
+  }
   const items = (result.profiles || []).filter(p => !p.deleted && !p.deletedAt && p.id && p.name)
     .sort((a,b) => Number(b.isMain || false) - Number(a.isMain || false) || (a.order || 0) - (b.order || 0));
   if (!items.length) main.append(el("p","Open Bingr om je eerste profiel in te stellen."));

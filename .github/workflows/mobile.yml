@@ -20,10 +20,16 @@ jobs:
       - name: Generate project
         run: |
           brew install xcodegen
-          python3 -c 'import os; keys=("BINGR_SUPABASE_URL","BINGR_SUPABASE_PUBLISHABLE_KEY","TRACK_TRAKT_CLIENT_ID"); print("\n".join(k + " = " + os.environ[k].replace("://", ":$()/"+"/") for k in keys if os.environ.get(k)))' > Config.local.xcconfig
+          python3 -c 'import os; keys=("BINGR_SUPABASE_URL","BINGR_SUPABASE_PUBLISHABLE_KEY","TRACK_TRAKT_CLIENT_ID"); print("\n".join(k + " = " + os.environ[k].replace("://", ":$(BINGR_URL_SLASH)$(BINGR_URL_SLASH)") for k in keys if os.environ.get(k)))' > Config.local.xcconfig
           xcodegen generate
       - name: Compile iOS and iPadOS
-        run: xcodebuild -project BingrTrack.xcodeproj -scheme BingrTrack -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build -quiet
+        run: xcodebuild -project BingrTrack.xcodeproj -scheme BingrTrack -destination 'generic/platform=iOS Simulator' -derivedDataPath "$RUNNER_TEMP/track-build" CODE_SIGNING_ALLOWED=NO build -quiet
+      - name: Verify packaged Bingr URL
+        run: |
+          plist="$RUNNER_TEMP/track-build/Build/Products/Debug-iphonesimulator/BingrTrack.app/Info.plist"
+          value=$(/usr/libexec/PlistBuddy -c 'Print :BingrURL' "$plist")
+          [[ "$value" =~ ^https://[a-zA-Z0-9.-]+/?$ ]]
+          /usr/libexec/PlistBuddy -c 'Print :BingrPublishableKey' "$plist" | grep -qE '^(sb_publishable_|eyJ)'
       - name: Package Xcode project
         run: zip -rq Bingr-Track-Xcode.zip BingrTrack.xcodeproj Apple web Info.plist project.yml Config.xcconfig Config.local.xcconfig README.md
       - uses: actions/upload-artifact@v4

@@ -1,4 +1,5 @@
-BINGR_SUPABASE_URL = https:$()//vjewsncmsxmhmhnoxwqx.supabase.co
+BINGR_URL_SLASH = /
+BINGR_SUPABASE_URL = https:$(BINGR_URL_SLASH)$(BINGR_URL_SLASH)vjewsncmsxmhmhnoxwqx.supabase.co
 BINGR_SUPABASE_PUBLISHABLE_KEY = sb_publishable_lpIup6Omq5kW2k3oICGZ4g_HPGac5A3
 TRACK_TRAKT_CLIENT_ID =
 #include? "Config.local.xcconfig"
