@@ -39,11 +39,24 @@ jobs:
           brew install xcodegen
           python3 -c 'import os; keys=("BINGR_SUPABASE_URL","BINGR_SUPABASE_PUBLISHABLE_KEY","TRACK_TRAKT_CLIENT_ID"); print("\n".join(k + " = " + os.environ[k].replace("://", ":$(BINGR_URL_SLASH)$(BINGR_URL_SLASH)") for k in keys if os.environ.get(k)))' > Config.local.xcconfig
           xcodegen generate
-      - name: Compile iOS and iPadOS
-        run: xcodebuild -project BingrTrack.xcodeproj -scheme BingrTrack -destination 'generic/platform=iOS Simulator' -derivedDataPath "$RUNNER_TEMP/track-build" CODE_SIGNING_ALLOWED=NO build -quiet
-      - name: Verify Apple build configuration and shared interface
+      - name: Archive iOS and iPadOS
+        run: xcodebuild -project BingrTrack.xcodeproj -scheme BingrTrack -configuration Release -destination 'generic/platform=iOS' -archivePath "$RUNNER_TEMP/BingrTrack.xcarchive" CODE_SIGNING_ALLOWED=NO archive -quiet
+      - name: Verify Apple archive configuration and shared interface
         run: |
-          plist="$RUNNER_TEMP/track-build/Build/Products/Debug-iphonesimulator/BingrTrack.app/Info.plist"
+          plist="$RUNNER_TEMP/BingrTrack.xcarchive/Products/Applications/BingrTrack.app/Info.plist"
+          python3 - "$plist" <<'PY'
+          import plistlib
+          import sys
+
+          with open(sys.argv[1], "rb") as file:
+              info = plistlib.load(file)
+          required = {"UIInterfaceOrientation" + suffix for suffix in
+                      ("Portrait", "PortraitUpsideDown", "LandscapeLeft", "LandscapeRight")}
+          declared = set(info.get("UISupportedInterfaceOrientations", []))
+          ipad = set(info.get("UISupportedInterfaceOrientations~ipad", declared))
+          if not required <= declared or not required <= ipad or 2 not in info.get("UIDeviceFamily", []):
+              raise SystemExit("The Apple archive must declare all four orientations for iPad multitasking.")
+          PY
           diff -r web "$(dirname "$plist")/web"
           version=$(awk '$1 == "TRACK_VERSION" {print $3}' TrackVersion.xcconfig)
           build=$(awk '$1 == "TRACK_BUILD" {print $3}' TrackVersion.xcconfig)

@@ -33,6 +33,11 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
         NSFaceIDUsageDescription: Gebruik Face ID om Bingr Track te ontgrendelen.
         BingrURL: $(BINGR_SUPABASE_URL)
         BingrPublishableKey: $(BINGR_SUPABASE_PUBLISHABLE_KEY)
