@@ -12,3 +12,7 @@ De publieke Bingr-configuratie staat ingesteld. GitHub Actions-variabelen `BINGR
 - Android: bouw vanuit `android/` met Gradle 8.13, JDK 17 en Android SDK 35, via `gradle assembleDebug`. De GitHub Actions-workflow levert een installeerbare debug-APK op. Bij lokaal bouwen leest Gradle de drie openbare configuratiewaarden uit de omgeving.
 
 De workflow is handmatig opnieuw te starten na het instellen van de variabelen.
+
+## Gelijke builds
+
+Apple en Android gebruiken hetzelfde versiebestand en dezelfde HTML-, CSS-, JavaScript- en splashbestanden uit `web/`. De CI controleert de inhoud en de versie van beide gebouwde apps voordat ze de downloadbestanden uploadt.

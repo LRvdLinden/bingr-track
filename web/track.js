@@ -2,7 +2,9 @@
 const main = document.getElementById("main");
 const nav = document.getElementById("nav");
 const notice = document.getElementById("notice");
-const tabs = ["Vandaag", "Mijn lijst", "Kalender", "Geschiedenis", "Profiel"];
+const tabs = ["Vandaag", "Ontdek", "Mijn lijst", "Kalender", "Profiel"];
+const tabIcons = ["⌂", "⌕", "▤", "▦", "●"];
+let screenRevision = 0;
 let sequence = 0, settings, session, profile, shared, trakt, pending, tab = tabs[0];
 const waiting = new Map();
 let faceIDEnabled = false;
@@ -85,11 +87,15 @@ async function device(action, data = {}) {
   }
 }
 function screen(title, showNav = Boolean(profile)) {
+  ++screenRevision;
   main.replaceChildren(el("h1",title));
   nav.hidden = !showNav;
   nav.replaceChildren();
-  if (showNav) tabs.forEach(name => {
+  if (showNav) tabs.forEach((name,index) => {
     const b = button(name, () => render(name));
+    const icon = el("span",tabIcons[index],"tab-icon");
+    icon.setAttribute("aria-hidden","true");
+    b.prepend(icon);
     if (tab === name) b.setAttribute("aria-current","page");
     nav.append(b);
   });
@@ -221,70 +227,222 @@ function records(field) {
 function external(item) {
   const title = item.seriesTitle || item.title;
   if (!title) return;
-  const query = new URLSearchParams({type:["episode","series","show"].includes(item.type) ? "tv" : "movie",q:title});
+  const query = new URLSearchParams({type:["episode","series","show","season"].includes(item.type) ? "tv" : "movie",q:title});
   const tmdb = Number(item.tmdbId ?? item.ids?.tmdb);
   if (tmdb > 0) query.set("id",String(tmdb));
   return native("open",{url:"https://bingr.online/titel/?" + query});
 }
-function cards(items, empty) {
-  if (!items.length) { main.append(el("p",empty)); return; }
+function imageURL(item) {
+  if (typeof item.artwork === "string" && item.artwork.startsWith("https://image.tmdb.org/")) return item.artwork;
+  const image = item.images?.poster?.[0];
+  if (!profile?.kids && typeof image === "string") {
+    try {
+      const url = new URL(image.includes("://") ? image : "https://" + image);
+      if (url.protocol === "https:" && ["image.tmdb.org","walter-r2.trakt.tv","images.trakt.tv"].includes(url.hostname))
+        return url.href;
+    } catch {}
+  }
+  return null;
+}
+function kindLabel(item) {
+  return ({movie:"Film",episode:"Aflevering",series:"Serie",show:"Serie",live:"Live-tv"})[item.type] || "";
+}
+function dateLabel(value, options = {dateStyle:"medium"}) {
+  const stamp = time(value);
+  return stamp ? new Date(stamp).toLocaleString("nl-NL",options) : "";
+}
+function detail(item) {
+  const dialog = el("dialog",null,"detail");
+  const title = el("h2",item.title || "Titel onbekend");
+  dialog.append(title);
+  const metadata = [kindLabel(item),item.year,item.subtitle].filter(Boolean).join(" · ");
+  if (metadata) dialog.append(el("p",metadata));
+  if (item.overview) dialog.append(el("p",item.overview));
+  if (item.title && item.type !== "live") dialog.append(button("Open in Bingr",() => external(item),true));
+  if (trakt && ["movie","series"].includes(item.type) && item.ids && !profile?.kids) {
+    dialog.append(button("Bewaar op Trakt",async () => {
+      await addToTrakt("/sync/watchlist",item);
+      dialog.close();
+    }));
+  }
+  dialog.append(button("Sluiten",() => dialog.close()));
+  dialog.addEventListener("close", () => dialog.remove(), {once:true});
+  main.append(dialog);
+  dialog.showModal();
+}
+function cards(items, empty, container = main) {
+  if (!items.length) { container.append(el("p",empty,"empty")); return; }
   const grid = el("div",null,"grid");
   for (const item of items) {
     const card = el("article",null,"card");
-    if (profile?.isMain && typeof item.artwork === "string" && item.artwork.startsWith("https://image.tmdb.org/")) {
-      const img = el("img"); img.alt = ""; img.src = item.artwork; card.append(img);
+    const art = imageURL(item);
+    if (art) {
+      const img = el("img"); img.alt = ""; img.src = art; img.loading = "lazy"; img.referrerPolicy = "no-referrer";
+      img.onerror = () => img.remove(); card.append(img);
     }
-    card.append(el("h2",item.title || "Titel onbekend"));
+    const label = [kindLabel(item),item.year].filter(Boolean).join(" · ");
+    if (label) card.append(el("small",label,"media-kind"));
+    const title = button(item.title || "Titel onbekend",() => detail(item));
+    title.className = "title-button";
+    card.append(title);
     if (item.subtitle) card.append(el("p",item.subtitle));
     if (Number.isFinite(item.fraction)) {
       const p = el("progress"); p.max = 1; p.value = Math.max(0,Math.min(1,item.fraction));
-      p.setAttribute("aria-label","Kijkvoortgang"); card.append(p,el("small",Math.round(p.value*100) + "% bekeken"));
+      p.setAttribute("aria-label","Kijkvoortgang");
+      card.append(p,el("small",Math.round(p.value*100) + "% bekeken"));
     }
-    if (item.title && item.type !== "live") card.append(button("Open in Bingr", () => external(item)));
     grid.append(card);
   }
-  main.append(grid);
+  container.append(grid);
+}
+function progressItems() {
+  return active("progress",Object.entries(shared.progress || {}).map(([id,value]) => ({
+    ...value,id,type:id.startsWith("ep:") ? "episode" : "movie",
+    fraction:value?.fraction ?? (value?.duration > 0 ? value.position / value.duration : undefined)
+  })));
+}
+function listedItems(history) {
+  const matches = new Map();
+  for (const row of [...history,...progressItems()]) {
+    if (!row?.itemID) continue;
+    matches.set(key(row.itemID),row);
+    if (row.playlistID) matches.set(key(row.playlistID + "|" + row.itemID),row);
+  }
+  return records("myList").map(row => ({...matches.get(key(row.id)),...row}));
+}
+function filters(items, container, empty) {
+  const controls = el("div",null,"filter-row"), results = el("div");
+  const options = [["Alles",() => true],["Films",x => x.type === "movie"],
+    ["Series",x => ["episode","series","show"].includes(x.type)]];
+  for (const [label, test] of options) controls.append(button(label,() => draw(label,test)));
+  function draw(label,test) {
+    options.forEach(([name], index) => controls.children[index].setAttribute("aria-pressed",String(name === label)));
+    results.replaceChildren();
+    cards(items.filter(test),empty,results);
+  }
+  draw(...options[0]);
+  container.append(controls,results);
+}
+function grouped(items, empty) {
+  if (!items.length) { main.append(el("p",empty,"empty")); return; }
+  const groups = new Map();
+  for (const row of items) {
+    const day = dateLabel(row.day ?? row.at ?? row.date,{dateStyle:"full"}) || "Datum onbekend";
+    if (!groups.has(day)) groups.set(day,[]);
+    groups.get(day).push(row);
+  }
+  for (const [day, rows] of groups) {
+    main.append(el("h2",day));
+    cards(rows,empty);
+  }
+}
+function discover(history) {
+  const form = el("form",null,"search-form");
+  const input = field(form,"Zoek in je kijkgegevens","search","off");
+  const submit = el("button","Zoek","primary");
+  form.append(submit);
+  const results = el("div");
+  main.append(form,results);
+  const local = [...progressItems(), ...listedItems(history), ...history].filter(item => item.title && item.type !== "live");
+  const revision = screenRevision;
+  let searchCount = 0;
+  form.onsubmit = async event => {
+    event.preventDefault();
+    const id = ++searchCount, query = input.value.trim();
+    results.replaceChildren();
+    if (!query) return;
+    const lowered = query.toLocaleLowerCase("nl");
+    const seen = new Set();
+    const matches = local.filter(item => {
+      const title = item.title.toLocaleLowerCase("nl");
+      if (!title.includes(lowered) || seen.has(title)) return false;
+      seen.add(title);
+      return true;
+    });
+    results.append(el("h2","In jouw Bingr"));
+    cards(matches,"Geen titels gevonden in je kijkgegevens.",results);
+    if (!settings.trakt || profile.kids) return;
+    try {
+      const found = await traktAPI("/search/movie,show?query=" + encodeURIComponent(query) + "&extended=full,images&limit=16",false);
+      if (revision !== screenRevision || id !== searchCount) return;
+      results.append(el("h2","Op Trakt"));
+      filters(found.map(traktItem).filter(Boolean),results,"Geen titels gevonden op Trakt.");
+    } catch (e) { if (revision === screenRevision && id === searchCount) error(e); }
+  };
+  if (settings.trakt && !profile.kids) {
+    const featured = el("div");
+    const buttons = el("div",null,"filter-row");
+    async function trending(type) {
+      const id = ++searchCount;
+      featured.replaceChildren(el("p","Titels laden…","empty"));
+      try {
+        const rows = await traktAPI("/" + type + "/trending?extended=full,images&limit=12",false);
+        if (revision !== screenRevision || id !== searchCount) return;
+        featured.replaceChildren();
+        cards(rows.map(traktItem).filter(Boolean),"Er zijn geen titels beschikbaar.",featured);
+      } catch (e) {
+        if (revision === screenRevision && id === searchCount) featured.replaceChildren(el("p",e.message,"empty"));
+      }
+    }
+    buttons.append(button("Trending films",() => trending("movies")),button("Trending series",() => trending("shows")));
+    main.append(el("h2","Trending op Trakt"),buttons,featured);
+    void trending("movies");
+  }
+}
+function traktItem(entry) {
+  const media = entry.movie || entry.show || entry.episode;
+  if (!media?.title) return null;
+  return {...media,type:entry.movie ? "movie" : entry.episode && !entry.show ? "episode" : "series",
+    subtitle:entry.episode && entry.show ? "S" + entry.episode.season + " · A" + entry.episode.number : ""};
 }
 async function render(name) {
   if (!profile) return;
   tab = name;
   screen(name);
+  const revision = screenRevision;
   const history = records("history");
   if (name === "Vandaag") {
-    main.append(el("p",profile.name),el("h2","Verder kijken"));
-    cards(active("progress",Object.entries(shared.progress || {}).map(([id,value]) => ({
-      ...value,id,type:id.startsWith("ep:") ? "episode" : "movie",
-      fraction:value?.fraction ?? (value?.duration > 0 ? value.position / value.duration : undefined)
-    }))).slice(0,12),"Je hebt nog geen titels om verder te kijken.");
-    main.append(button("Vernieuw",reload));
+    const hero = el("section",null,"dashboard");
+    hero.append(el("p",profile.name,"profile-name"),el("h2","Jouw kijkoverzicht"));
+    const metrics = el("div",null,"metrics");
+    for (const [amount,label] of [[progressItems().length,"Verder kijken"],[records("myList").length,"Mijn lijst"],[history.length,"Kijkmomenten"]]) {
+      const metric = el("div"); metric.append(el("strong",amount),el("span",label)); metrics.append(metric);
+    }
+    hero.append(metrics); main.append(hero,el("h2","Verder kijken"));
+    cards(progressItems().slice(0,12),"Je hebt nog geen titels om verder te kijken.");
+    main.append(el("h2","Recent bekeken"));
+    cards(history.slice(0,4),"Je kijkgeschiedenis is leeg.");
+    const actions = el("div",null,"actions");
+    actions.append(button("Hele kijkgeschiedenis",() => render("Geschiedenis")),button("Vernieuw",reload));
+    main.append(actions);
+  } else if (name === "Ontdek") {
+    discover(history);
   } else if (name === "Geschiedenis") {
-    cards(history.slice(0,100).map(item => ({...item,subtitle:[item.subtitle,time(item.at ?? item.date) ?
-      new Date(time(item.at ?? item.date)).toLocaleString("nl-NL",{dateStyle:"medium",timeStyle:"short"}) : null,"Bingr"].filter(Boolean).join(" · ")})),"Je kijkgeschiedenis is leeg.");
+    grouped(history.slice(0,100).map(item => ({...item,subtitle:[item.subtitle,dateLabel(item.at ?? item.date,{timeStyle:"short"}),"Bingr"].filter(Boolean).join(" · ")})),"Je kijkgeschiedenis is leeg.");
     main.append(button("Vernieuw",reload));
     if (trakt) main.append(button("Trakt-geschiedenis", () => traktCollection("/sync/history", "Trakt-geschiedenis")));
   } else if (name === "Mijn lijst") {
-    const matches = new Map();
-    for (const row of [...history,...Object.values(shared.progress || {})]) {
-      if (row?.itemID) {
-        matches.set(key(row.itemID),row);
-        if (row.playlistID) matches.set(key(row.playlistID + "|" + row.itemID),row);
-      }
-    }
-    cards(records("myList").map(row => ({...matches.get(key(row.id)),...row})),"Mijn lijst is leeg.");
+    filters(listedItems(history),main,"Geen titels in deze selectie.");
     main.append(button("Vernieuw",reload));
     if (trakt) main.append(button("Trakt-watchlist", () => traktCollection("/sync/watchlist", "Trakt-watchlist")));
   } else if (name === "Kalender") {
-    if (!trakt || profile.kids) { main.append(el("p","Koppel Trakt in Profiel om je uitzendkalender te zien.")); return; }
+    if (!trakt || profile.kids) {
+      main.append(el("p","Koppel Trakt in Profiel om je uitzendkalender te zien.","empty"));
+      if (!profile.kids) main.append(button("Naar Profiel", () => render("Profiel"), true));
+      return;
+    }
     const date = new Date();
     const local = new Date(date.getTime() - date.getTimezoneOffset()*60000).toISOString().slice(0,10);
-    const current = profile;
-    const result = await traktAPI("/calendars/my/shows/" + local + "/14");
-    if (profile !== current || tab !== name) return;
-    cards(result.map(item => ({title:item.show.title,type:"series",ids:item.show.ids,
-      subtitle:new Date(item.first_aired).toLocaleDateString("nl-NL") + " · S" + item.episode.season + " A" + item.episode.number
+    main.append(el("p","Komende 14 dagen"));
+    const result = await traktAPI("/calendars/my/shows/" + local + "/14?extended=images");
+    if (revision !== screenRevision) return;
+    grouped(result.filter(item => item.show && item.episode).map(item => ({
+      ...traktItem(item),day:item.first_aired
     })),"Geen geplande afleveringen in de komende 14 dagen.");
   } else {
-    main.append(el("h2",profile.name),button("Wissel profiel",profiles),button("Uitloggen",logout));
+    const actions = el("div",null,"actions");
+    actions.append(button("Wissel profiel",profiles),button("Kijkgeschiedenis",() => render("Geschiedenis")),button("Uitloggen",logout));
+    main.append(el("h2",profile.name),actions);
     if (settings.faceID) {
       main.append(el("h2","Face ID"),button(faceIDEnabled ? "Schakel Face ID uit" : "Schakel Face ID in", async () => {
         if (faceIDEnabled) await clearFaceID();
@@ -296,7 +454,8 @@ async function render(name) {
     if (!profile.kids) {
       main.append(el("h2","Trakt"));
       if (trakt) main.append(el("p","Verbonden voor deze sessie"),button("Ontkoppel Track",() => { trakt = null; return render(tab); }));
-      else main.append(button("Koppel Trakt",connectTrakt,true));
+      else if (settings.trakt) main.append(button("Koppel Trakt",connectTrakt,true));
+      else main.append(el("p","Trakt is nog niet geconfigureerd voor deze build."));
     }
   }
 }
@@ -341,12 +500,18 @@ async function traktCollection(path, title) {
   }).filter(Boolean), "Deze lijst is leeg.");
   main.append(button("Terug", () => render(currentTab)));
 }
-async function traktAPI(path) {
+async function addToTrakt(path,item) {
+  const kind = item.type === "movie" ? "movies" : "shows";
+  const result = await traktAPI(path,true,{[kind]:[{ids:item.ids}]});
+  if ((result?.not_found?.[kind] || []).length) throw new Error("Trakt kon deze titel niet vinden.");
+  error(new Error("Opgeslagen op je Trakt-watchlist."));
+}
+async function traktAPI(path, authenticated = true, payload = null) {
   try {
-    return await request("https://api.trakt.tv" + path,null,{"trakt-api-version":"2","trakt-api-key":settings.trakt,
-      Authorization:"Bearer " + trakt.access_token});
+    return await request("https://api.trakt.tv" + path,payload,{"trakt-api-version":"2","trakt-api-key":settings.trakt,
+      ...(authenticated ? {Authorization:"Bearer " + trakt.access_token} : {})});
   } catch (e) {
-    if (e.status === 401) { trakt = null; await render("Profiel"); }
+    if (authenticated && e.status === 401) { trakt = null; await render("Profiel"); }
     throw e;
   }
 }

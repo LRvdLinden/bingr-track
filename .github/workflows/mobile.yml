@@ -24,14 +24,19 @@ jobs:
           xcodegen generate
       - name: Compile iOS and iPadOS
         run: xcodebuild -project BingrTrack.xcodeproj -scheme BingrTrack -destination 'generic/platform=iOS Simulator' -derivedDataPath "$RUNNER_TEMP/track-build" CODE_SIGNING_ALLOWED=NO build -quiet
-      - name: Verify packaged Bingr URL
+      - name: Verify Apple build configuration and shared interface
         run: |
           plist="$RUNNER_TEMP/track-build/Build/Products/Debug-iphonesimulator/BingrTrack.app/Info.plist"
+          diff -r web "$(dirname "$plist")/web"
+          version=$(awk '$1 == "TRACK_VERSION" {print $3}' TrackVersion.xcconfig)
+          build=$(awk '$1 == "TRACK_BUILD" {print $3}' TrackVersion.xcconfig)
+          [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist")" == "$version" ]]
+          [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$plist")" == "$build" ]]
           value=$(/usr/libexec/PlistBuddy -c 'Print :BingrURL' "$plist")
           [[ "$value" =~ ^https://[a-zA-Z0-9.-]+/?$ ]]
           /usr/libexec/PlistBuddy -c 'Print :BingrPublishableKey' "$plist" | grep -qE '^(sb_publishable_|eyJ)'
       - name: Package Xcode project
-        run: zip -rq Bingr-Track-Xcode.zip BingrTrack.xcodeproj Apple web Info.plist project.yml Config.xcconfig Config.local.xcconfig README.md
+        run: zip -rq Bingr-Track-Xcode.zip BingrTrack.xcodeproj Apple web Info.plist project.yml TrackVersion.xcconfig Config.xcconfig Config.local.xcconfig README.md
       - uses: actions/upload-artifact@v4
         with:
           name: Bingr-Track-Xcode
@@ -58,6 +63,26 @@ jobs:
         working-directory: android
         run: gradle --no-daemon assembleDebug
       - run: cp android/app/build/outputs/apk/debug/app-debug.apk Bingr-Track-Android.apk
+      - name: Verify Android version and shared interface
+        run: |
+          version=$(awk '$1 == "TRACK_VERSION" {print $3}' TrackVersion.xcconfig)
+          build=$(awk '$1 == "TRACK_BUILD" {print $3}' TrackVersion.xcconfig)
+          sdk="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+          info=$("$sdk/build-tools/35.0.0/aapt" dump badging Bingr-Track-Android.apk)
+          [[ "$info" == *"versionCode='$build' versionName='$version'"* ]]
+          python3 - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+
+          web = Path("web")
+          expected = {f"assets/{path.relative_to(web)}": path.read_bytes()
+                      for path in web.rglob("*") if path.is_file()}
+          with ZipFile("Bingr-Track-Android.apk") as apk:
+              actual = {name: apk.read(name) for name in apk.namelist()
+                        if name.startswith("assets/") and not name.endswith("/")}
+          if actual != expected:
+              raise SystemExit("The APK does not contain the exact shared web assets.")
+          PY
       - uses: actions/upload-artifact@v4
         with:
           name: Bingr-Track-Android
