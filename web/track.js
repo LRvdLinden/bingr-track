@@ -77,10 +77,13 @@ function bingr(path, body, auth = false) {
   });
 }
 let refreshing;
-async function device(action, data = {}) {
-  const run = () => bingr("/functions/v1/device-auth", {action, ...data}, true);
+async function device(action, data = {}, expectedOwner) {
+  const run = () => {
+    if (expectedOwner && session?.user?.id !== expectedOwner) throw new Error("Je Bingr-account is gewijzigd.");
+    return bingr("/functions/v1/device-auth", {action, ...data}, true);
+  };
   try { return await run(); } catch (e) {
-    if (e.status !== 401) throw e;
+    if (e.status !== 401 || (expectedOwner && session?.user?.id !== expectedOwner)) throw e;
     if (!refreshing) refreshing = bingr("/auth/v1/token?grant_type=refresh_token", {refresh_token:session.refresh_token})
       .then(async value => {
         session = value;
@@ -511,7 +514,7 @@ function writeAccount(section, operation) {
   const task = accountWrite.catch(() => {}).then(async () => {
     const isCurrent = () => profile === current && owner && owner === session?.user?.id;
     if (!isCurrent()) throw new Error("Kies opnieuw je Bingr-profiel.");
-    const result = await device("get_state",{sections:[...new Set([profileSection,section])]});
+    const result = await device("get_state",{sections:[...new Set([profileSection,section])]},owner);
     const states = result?.sections;
     const profileData = states?.[profileSection]?.data;
     if (!isCurrent() || !states || (!profileData && Object.keys(shared || {}).length) ||
@@ -524,7 +527,7 @@ function writeAccount(section, operation) {
     const timestamp = Math.max(Date.now(),(Date.parse(states[section]?.updatedAt) || 0) + 1);
     const next = operation(latest,new Date(timestamp).toISOString());
     if (!isCurrent()) throw new Error("Je profiel is gewijzigd.");
-    const reply = await device("put_state",{section,data:next});
+    const reply = await device("put_state",{section,data:next},owner);
     if (reply?.ok !== true) throw new Error("Bingr heeft de wijziging niet bevestigd.");
     if (isCurrent()) {
       if (section === profileSection) shared = next;
@@ -1256,7 +1259,7 @@ async function openTraktLists() {
       const content = el("div");
       folder.append(content);
       try {
-        const rows = await traktRows("/users/me/lists/" + list.ids.trakt + "/items?limit=50");
+        const rows = await traktRows("/users/me/lists/" + list.ids.trakt + "/items?page=1&limit=50");
         for (const row of rows) {
           const item = traktItem(row);
           if (!item) continue;
