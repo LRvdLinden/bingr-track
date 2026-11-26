@@ -8,6 +8,7 @@ const tabIcons = ["⌂", "⌕", "▤", "▦", "◯"];
 let screenRevision = 0;
 let bingrTrakt = null;
 let traktConfigFailed = false;
+let catalogMeta = null;
 let traktLoading = false;
 let connectedInTrack = null;
 let bingrTraktExpired = false;
@@ -161,7 +162,7 @@ function login() {
   if (faceIDEnabled) main.append(button("Ontgrendel met Face ID", unlockWithFaceID, true));
 }
 async function profiles() {
-  profile = shared = trakt = pending = bingrTrakt = null;
+  profile = shared = trakt = pending = bingrTrakt = catalogMeta = null;
   traktLists.clear();
   screen("Wie kijkt er?", false);
   main.classList.add("profile-screen");
@@ -185,12 +186,12 @@ async function profiles() {
 }
 async function logout() {
   try { if (session) await bingr("/auth/v1/logout?scope=local",{},true); }
-  finally { await clearFaceID(); profilePhotos.clear(); connectedInTrack = null; traktLists.clear(); session = profile = shared = trakt = pending = bingrTrakt = null; login(); }
+  finally { await clearFaceID(); profilePhotos.clear(); connectedInTrack = null; traktLists.clear(); session = profile = shared = trakt = pending = bingrTrakt = catalogMeta = null; login(); }
 }
 async function state(p) {
   const section = "profile." + p.id;
-  const result = await device("get_state",{sections:[section]});
-  return result.sections?.[section]?.data || {};
+  const result = await device("get_state",{sections:[section,"catalogmeta"]});
+  return {data:result.sections?.[section]?.data || {},catalog:result.sections?.catalogmeta?.data || null};
 }
 function lockValue(data) { return JSON.stringify([data.pinHash ?? null,data.pin ?? null]); }
 let unlocked;
@@ -235,7 +236,7 @@ function profileAvatar(p) {
 }
 async function select(p) {
   const revision = screenRevision;
-  const data = await state(p);
+  const {data,catalog} = await state(p);
   if (revision !== screenRevision) return;
   if (data.pinHash || data.pin) {
     screen("Pincode invoeren", false);
@@ -270,11 +271,11 @@ async function select(p) {
       try {
         const valid = data.pinHash ? await native("verifyPIN",{pin:pin.value, hash:data.pinHash}) : pin.value === String(data.pin);
         if (!valid) throw new Error("Onjuiste pincode.");
-        if (form.isConnected) enter(p,data);
+        if (form.isConnected) enter(p,data,catalog);
       } catch(e) { error(e); } finally { submit.disabled = false; pin.value = ""; drawDigits(); }
     };
     main.append(form);
-  } else enter(p,data);
+  } else enter(p,data,catalog);
 }
 function traktScope(p = profile) {
   const user = session?.user?.id;
@@ -340,10 +341,11 @@ async function loadTraktConfig(p) {
     else trakt = {access_token:existing.accessToken,source:"bingr",username:existing.username};
   }
 }
-function enter(p,data) {
+function enter(p,data,catalog) {
   profile = p;
   unlocked = lockValue(data);
   shared = data;
+  catalogMeta = catalog;
   traktLoading = !p.kids;
   void render("Vandaag").catch(error);
   void loadTraktConfig(p).then(() => {
@@ -358,6 +360,7 @@ async function reload() {
   if (profile !== p) return;
   if (lockValue(data) !== unlocked) { await profiles(); return; }
   shared = data;
+  catalogMeta = catalog;
   traktLists.clear();
   await render(tab);
 }
@@ -459,7 +462,8 @@ function showTitleDetails(panel, item, meta, ratings) {
 }
 const titleMetadataCache = new Map();
 async function bingrTitleMeta(item) {
-  const query = new URLSearchParams({type:item.type === "movie" ? "movie" : "tv",q:item.seriesTitle || item.title});
+  const query = new URLSearchParams({type:item.type === "movie" ? "movie" : "tv"});
+  if (item.seriesTitle || item.title) query.set("q",item.seriesTitle || item.title);
   if (item.year) query.set("y",String(item.year));
   const id = Number(item.ids?.tmdb || item.tmdbId);
   if (Number.isSafeInteger(id) && id > 0) query.set("id",String(id));
@@ -581,26 +585,118 @@ function progressItems() {
     fraction:value?.fraction ?? (value?.duration > 0 ? value.position / value.duration : undefined)
   })));
 }
-function listedItems(history) {
-  const matches = new Map();
-  for (const row of [...history,...progressItems()]) {
-    if (!row?.itemID) continue;
-    matches.set(key(row.itemID),row);
-    if (row.playlistID) matches.set(key(row.playlistID + "|" + row.itemID),row);
+function listIndex() {
+  const direct = new Map(), legacy = new Map();
+  for (const [rawId,entry] of Object.entries(catalogMeta?.items || {})) {
+    if (!entry || typeof entry !== "object") continue;
+    const id = key(rawId);
+    direct.set(id,entry);
+    const separator = id.indexOf("|");
+    if (separator < 0) continue;
+    const itemID = id.slice(separator + 1);
+    if (legacy.has(itemID) && legacy.get(itemID) !== id) legacy.set(itemID,null);
+    else legacy.set(itemID,id);
   }
-  return records("myList").map(row => ({...matches.get(key(row.id)),...row}));
+  return {direct,legacy};
 }
-function filters(items, container, empty) {
+function remappedListID(id) {
+  const visited = new Set([id.toLowerCase()]);
+  let next = id;
+  for (let i = 0; i < 10; i++) {
+    const target = catalogMeta?.remap?.[next.toLowerCase()]?.to;
+    if (typeof target !== "string" || !target) return next;
+    const normalized = key(target);
+    if (visited.has(normalized.toLowerCase())) return id;
+    visited.add(normalized.toLowerCase());
+    next = normalized;
+  }
+  return next;
+}
+function listedItems(history) {
+  const {direct,legacy} = listIndex();
+  const matches = new Map();
+  const ambiguous = new Set();
+  for (const row of [...history,...progressItems()]) {
+    const itemID = row.itemID || row.id;
+    if (!itemID || !row.title) continue;
+    const scoped = row.playlistID && !String(itemID).toLowerCase().startsWith(String(row.playlistID).toLowerCase() + "|") ?
+      key(row.playlistID + "|" + itemID) : key(itemID);
+    if (!matches.has(scoped)) matches.set(scoped,row);
+    const previous = matches.get(itemID);
+    if (previous?.playlistID && row.playlistID &&
+        String(previous.playlistID).toLowerCase() !== String(row.playlistID).toLowerCase()) ambiguous.add(itemID);
+    if (!previous) matches.set(itemID,row);
+  }
+  const removed = new Map();
+  function recordRemoval(id,at) {
+    const normalized = key(id);
+    removed.set(normalized,Math.max(time(at),removed.get(normalized) ?? -1));
+  }
+  for (const source of [shared.myListRemoved,shared.removed?.myList]) {
+    for (const [id,at] of Object.entries(source || {})) recordRemoval(id,at);
+  }
+  for (const item of shared.myList || []) if (item?.removed && item.id) recordRemoval(item.id,item.at);
+  const result = new Map();
+  for (const row of records("myList")) {
+    const oldID = key(row.id);
+    const target = remappedListID(oldID);
+    if (time(row.at) <= (removed.get(target) ?? -1)) continue;
+    const id = direct.has(target) ? target : legacy.get(target) || target;
+    if (result.has(id)) continue;
+    const meta = direct.get(id) || direct.get(oldID);
+    const historyItem = matches.get(id.includes("|") ? id : "") ||
+      matches.get(oldID.includes("|") ? oldID : "") || (!ambiguous.has(id) && matches.get(id));
+    const type = ({movie:"movie",series:"series",episode:"episode",channel:"live"})[meta?.k] || row.type || historyItem?.type;
+    const tmdb = Number(meta?.tmdb || row.ids?.tmdb || row.tmdbId || historyItem?.tmdbId);
+    result.set(id,{...historyItem,...row,id,type,
+      title:meta?.t || row.title || historyItem?.title,
+      year:meta?.y || row.year || historyItem?.year,
+      artwork:meta?.img || row.artwork || historyItem?.artwork,
+      seriesTitle:meta?.ep?.st || row.seriesTitle || historyItem?.seriesTitle,
+      tmdbId:tmdb > 0 ? tmdb : undefined,
+      ids:{...historyItem?.ids,...row.ids,...(tmdb > 0 ? {tmdb} : {})}});
+  }
+  return [...result.values()];
+}
+async function renderMyList(history,revision) {
+  const list = listedItems(history);
+  const needsLookup = list.filter(item => !item.title && item.tmdbId && ["series","movie","episode"].includes(item.type)).slice(0,30);
+  const target = el("section");
+  main.append(target);
+  let selected = "Alles";
+  function draw() {
+    target.replaceChildren();
+    const known = list.filter(x => x.title);
+    const missing = list.length - known.length;
+    filters(known,target,"Geen titels in deze selectie.",selected,label => { selected = label; });
+    if (missing) {
+      target.append(el("p", missing === 1 ? "Van 1 opgeslagen titel is nog geen naam beschikbaar in de Bingr-sync." :
+        "Van " + missing + " opgeslagen titels is nog geen naam beschikbaar in de Bingr-sync.","empty"));
+    }
+  }
+  draw();
+  for (let offset = 0; offset < needsLookup.length && revision === screenRevision; offset += 3) {
+    const batch = needsLookup.slice(offset,offset + 3);
+    await Promise.all(batch.map(async item => {
+      const meta = await bingrTitleMeta(item);
+      const title = meta?.title?.nl || meta?.title?.en;
+      if (title) Object.assign(item,{title,year:meta.year || item.year,artwork:tmdbArt(meta.poster,"w342") || item.artwork});
+    }));
+    if (revision === screenRevision) draw();
+  }
+}
+function filters(items, container, empty, selected = "Alles", onSelect = () => {}) {
   const controls = el("div",null,"filter-row"), results = el("div");
   const options = [["Alles",() => true],["Films",x => x.type === "movie"],
     ["Series",x => ["episode","series","show"].includes(x.type)]];
   for (const [label, test] of options) controls.append(button(label,() => draw(label,test)));
   function draw(label,test) {
+    onSelect(label);
     options.forEach(([name], index) => controls.children[index].setAttribute("aria-pressed",String(name === label)));
     results.replaceChildren();
     cards(items.filter(test),empty,results);
   }
-  draw(...options[0]);
+  draw(...(options.find(([name]) => name === selected) || options[0]));
   container.append(controls,results);
 }
 function grouped(items, empty, container = main) {
@@ -760,7 +856,7 @@ async function render(name) {
     main.append(button("Vernieuw",reload));
     if (!profile.kids) showTraktSection("Trakt-geschiedenis",async () => (await traktRows("/sync/history?limit=50")).map(traktActivity).filter(Boolean),"Je Trakt-geschiedenis is leeg.",grouped);
   } else if (name === "Mijn lijst") {
-    filters(listedItems(history),main,"Geen titels in deze selectie.");
+    void renderMyList(history,screenRevision).catch(error);
     main.append(button("Vernieuw",reload));
     if (!profile.kids) showTraktSection("Trakt-watchlist",async () => (await traktRows("/sync/watchlist?limit=50")).map(row => ({...traktItem(row),source:"Trakt"})).filter(item => item.title),"Je Trakt-watchlist is leeg.",(items,empty,container) => filters(items,container,empty));
   } else if (name === "Kalender") {
