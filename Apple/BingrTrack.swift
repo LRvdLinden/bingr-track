@@ -84,7 +84,7 @@ final class TrackBridge: NSObject, ObservableObject, WKScriptMessageHandler, WKN
             reply(id, values)
         case "open":
             guard let raw = body["url"] as? String, let url = URL(string: raw), url.scheme == "https",
-                  ["bingr.online", "trakt.tv"].contains(url.host ?? "") else { fail(id); return }
+                  ["bingr.online", "trakt.tv", "www.imdb.com", "www.themoviedb.org"].contains(url.host ?? "") else { fail(id); return }
             UIApplication.shared.open(url)
             reply(id, true)
         case "pkce":
@@ -112,6 +112,9 @@ final class TrackBridge: NSObject, ObservableObject, WKScriptMessageHandler, WKN
             reply(id, vault.update(token))
         case "disableFaceID":
             reply(id, vault.disable())
+        case "readTraktSession", "saveTraktSession", "clearTraktSession":
+            guard let scope = body["scope"] as? String else { fail(id); return }
+            reply(id, TraktSessionVault.handle(action: action, scope: scope, token: body["data"] as? String))
         case "request":
             send(body, id)
         default:

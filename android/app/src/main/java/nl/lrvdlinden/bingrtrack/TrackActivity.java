@@ -97,7 +97,7 @@ public final class TrackActivity extends Activity {
                     .put("trakt",getString(R.string.trakt_id));
             case "open":
                 Uri uri = Uri.parse(message.getString("url"));
-                if (!"https".equals(uri.getScheme()) || !("bingr.online".equals(uri.getHost()) || "trakt.tv".equals(uri.getHost())))
+                if (!"https".equals(uri.getScheme()) || !java.util.Arrays.asList("bingr.online","trakt.tv","www.imdb.com","www.themoviedb.org").contains(uri.getHost()))
                     throw new IllegalArgumentException();
                 runOnUiThread(() -> {
                     try { startActivity(new Intent(Intent.ACTION_VIEW, uri)); }
@@ -115,6 +115,9 @@ public final class TrackActivity extends Activity {
                 random.nextBytes(bytes);
                 String challenge = base64URL(MessageDigest.getInstance("SHA-256").digest(verifier.getBytes(StandardCharsets.US_ASCII)));
                 return new JSONObject().put("verifier",verifier).put("state",base64URL(bytes)).put("challenge",challenge);
+            case "readTraktSession":
+            case "saveTraktSession":
+            case "clearTraktSession": return TraktSessionVault.handle(this,message);
             case "request": return request(message);
             default: throw new IllegalArgumentException();
         }
