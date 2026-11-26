@@ -146,6 +146,7 @@ function login() {
       }
       if (!session?.access_token || !session?.refresh_token) throw new Error("Bingr heeft geen geldige sessie teruggestuurd.");
       await clearFaceID();
+      profilePhotos.clear();
       password.value = "";
       await profiles();
     } catch (e) { error(e); } finally { submit.disabled = false; }
@@ -177,7 +178,7 @@ async function profiles() {
 }
 async function logout() {
   try { if (session) await bingr("/auth/v1/logout?scope=local",{},true); }
-  finally { await clearFaceID(); session = profile = shared = trakt = pending = bingrTrakt = null; login(); }
+  finally { await clearFaceID(); profilePhotos.clear(); session = profile = shared = trakt = pending = bingrTrakt = null; login(); }
 }
 async function state(p) {
   const section = "profile." + p.id;
@@ -186,12 +187,43 @@ async function state(p) {
 }
 function lockValue(data) { return JSON.stringify([data.pinHash ?? null,data.pin ?? null]); }
 let unlocked;
+const profilePhotos = new Map();
 const avatarIcons = {"person.fill":"👤","person.crop.circle.fill":"👤","tv.fill":"📺","globe":"🌐","soccerball":"⚽","crown.fill":"👑","flame.fill":"🔥","gamecontroller.fill":"🎮","film.fill":"🎬","star.fill":"⭐","heart.fill":"♥","music.note":"♪","bolt.fill":"⚡","pawprint.fill":"🐾","cat.fill":"🐱","dog.fill":"🐶"};
+function avatarFile(avatar) {
+  const symbol = String(avatar.symbol || avatar.image || avatar.id || "").split("/").pop();
+  const match = /^(?:kid|child)[_:-]?0*(\d{1,2})(?:\.png)?$/i.exec(symbol);
+  const number = Number(match?.[1]);
+  return number >= 1 && number <= 16 ? "avatars/kid" + String(number).padStart(2,"0") + ".png" : null;
+}
+function avatarImage(container, url) {
+  const image = el("img");
+  image.alt = "";
+  image.onload = () => container.replaceChildren(image);
+  image.src = url;
+}
+function profilePhoto(p) {
+  const user = session?.user?.id, path = p.photo?.path;
+  if (typeof user !== "string" || !/^[a-f0-9-]{36}$/i.test(user) ||
+      typeof p.id !== "string" || !/^[a-z0-9_-]{1,64}$/i.test(p.id) ||
+      typeof path !== "string" || path.toLowerCase() !== (user + "/" + p.id + ".jpg").toLowerCase()) return null;
+  const cacheKey = path + ":" + (p.photo.updated || "");
+  if (!profilePhotos.has(cacheKey)) {
+    const url = "/storage/v1/object/authenticated/avatars/" + path.split("/").map(encodeURIComponent).join("/");
+    profilePhotos.set(cacheKey,bingr(url,null,true)
+      .then(result => result?.jpeg && /^\/9j\/[a-z0-9+/=]+$/i.test(result.jpeg) ? "data:image/jpeg;base64," + result.jpeg : null)
+      .catch(() => { profilePhotos.delete(cacheKey); return null; }));
+  }
+  return profilePhotos.get(cacheKey);
+}
 function profileAvatar(p) {
-  const avatar = typeof p.avatar === "object" && p.avatar ? p.avatar : {};
+  const avatar = typeof p.avatar === "object" && p.avatar ? p.avatar : {symbol:p.avatar};
   const palette = Number.isInteger(avatar.colorIndex) ? ((avatar.colorIndex % 10) + 10) % 10 : 0;
   const icon = el("span",avatar.emoji || avatarIcons[avatar.symbol] || (p.kids ? "🙂" : "👤"),"profile-avatar avatar-" + palette);
   icon.setAttribute("aria-hidden","true");
+  const photo = profilePhoto(p);
+  const local = avatarFile(avatar);
+  if (photo) void photo.then(url => { if (icon.isConnected && (url || local)) avatarImage(icon,url || local); });
+  else if (local) avatarImage(icon,local);
   return icon;
 }
 async function select(p) {

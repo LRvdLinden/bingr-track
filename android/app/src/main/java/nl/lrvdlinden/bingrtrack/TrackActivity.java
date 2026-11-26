@@ -145,6 +145,8 @@ public final class TrackActivity extends Activity {
             throw new IllegalArgumentException();
         String method = message.getString("method");
         if (!"GET".equals(method) && !"POST".equals(method)) throw new IllegalArgumentException();
+        boolean isAvatar = url.getHost().equals(bingrHost) && "GET".equals(method)
+            && url.getPath().startsWith("/storage/v1/object/authenticated/avatars/") && url.getPath().endsWith(".jpg");
         HttpsURLConnection connection = (HttpsURLConnection) url.openConnection();
         try {
             connection.setInstanceFollowRedirects(false);
@@ -175,7 +177,14 @@ public final class TrackActivity extends Activity {
                         buffer.write(chunk, 0, count);
                     }
                     byte[] bytes = buffer.toByteArray();
-                    if (bytes.length > 0) data = new JSONTokener(new String(bytes,StandardCharsets.UTF_8)).nextValue();
+                    if (isAvatar && status == 200) {
+                        if (bytes.length >= 3 && bytes.length <= 1048576
+                            && bytes[0] == (byte) 0xff && bytes[1] == (byte) 0xd8 && bytes[2] == (byte) 0xff) {
+                            data = new JSONObject().put("jpeg", Base64.encodeToString(bytes, Base64.NO_WRAP));
+                        }
+                    } else if (bytes.length > 0) {
+                        data = new JSONTokener(new String(bytes,StandardCharsets.UTF_8)).nextValue();
+                    }
                 }
             }
             return new JSONObject().put("status",status).put("data",data);

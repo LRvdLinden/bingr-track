@@ -157,11 +157,18 @@ final class TrackBridge: NSObject, ObservableObject, WKScriptMessageHandler, WKN
             request.httpBody = try? JSONSerialization.data(withJSONObject: payload)
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         }
+        let isAvatar = host == URL(string: setting("BingrURL"))?.host && method == "GET"
+            && url.path.hasPrefix("/storage/v1/object/authenticated/avatars/") && url.pathExtension == "jpg"
         let session = URLSession(configuration: .ephemeral, delegate: NoRedirect(), delegateQueue: nil)
         session.dataTask(with: request) { data, response, _ in
             session.finishTasksAndInvalidate()
             let status = (response as? HTTPURLResponse)?.statusCode
-            let json = data.flatMap { try? JSONSerialization.jsonObject(with: $0, options: .fragmentsAllowed) }
+            let json: Any?
+            if isAvatar, status == 200, let data, data.count <= 1_048_576, data.starts(with: [0xff, 0xd8, 0xff]) {
+                json = ["jpeg": data.base64EncodedString()]
+            } else {
+                json = data.flatMap { try? JSONSerialization.jsonObject(with: $0, options: .fragmentsAllowed) }
+            }
             DispatchQueue.main.async {
                 if let status { self.reply(id, ["status": status, "data": json ?? NSNull()]) }
                 else { self.fail(id) }
