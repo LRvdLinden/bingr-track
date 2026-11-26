@@ -13,10 +13,27 @@ env:
   TRACK_TRAKT_CLIENT_ID: ${{ vars.TRACK_TRAKT_CLIENT_ID }}
 
 jobs:
-  apple:
+  wordmark:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
+      - name: Render the Bingr iOS wordmark
+        run: |
+          swiftc -parse-as-library tools/RenderBingrWordmark.swift -o "$RUNNER_TEMP/render-wordmark"
+          "$RUNNER_TEMP/render-wordmark" web/bingr-wordmark.png
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Bingr-wordmark
+          path: web/bingr-wordmark.png
+  apple:
+    needs: wordmark
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: Bingr-wordmark
+          path: web
       - name: Generate project
         run: |
           brew install xcodegen
@@ -36,15 +53,20 @@ jobs:
           [[ "$value" =~ ^https://[a-zA-Z0-9.-]+/?$ ]]
           /usr/libexec/PlistBuddy -c 'Print :BingrPublishableKey' "$plist" | grep -qE '^(sb_publishable_|eyJ)'
       - name: Package Xcode project
-        run: zip -rq Bingr-Track-Xcode.zip BingrTrack.xcodeproj Apple web Info.plist project.yml TrackVersion.xcconfig Config.xcconfig Config.local.xcconfig README.md
+        run: zip -rq Bingr-Track-Xcode.zip BingrTrack.xcodeproj Apple web Info.plist project.yml TrackVersion.xcconfig Config.xcconfig Config.local.xcconfig README.md tools/RenderBingrWordmark.swift
       - uses: actions/upload-artifact@v4
         with:
           name: Bingr-Track-Xcode
           path: Bingr-Track-Xcode.zip
   android:
+    needs: wordmark
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: Bingr-wordmark
+          path: web
       - uses: actions/setup-java@v4
         with:
           distribution: temurin

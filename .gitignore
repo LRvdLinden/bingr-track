@@ -3,3 +3,4 @@ BingrTrack.xcodeproj/
 .gradle/
 **/build/
 .DS_Store
+web/bingr-wordmark.png
