@@ -5,6 +5,10 @@ const notice = document.getElementById("notice");
 const tabs = ["Vandaag", "Ontdek", "Mijn lijst", "Kalender", "Profiel"];
 const tabIcons = ["⌂", "⌕", "▤", "▦", "●"];
 let screenRevision = 0;
+let bingrTrakt = null;
+let traktConfigFailed = false;
+const traktClient = () => settings.trakt || bingrTrakt?.id;
+const canLinkTrakt = () => Boolean(settings.trakt || bingrTrakt?.secret);
 let sequence = 0, settings, session, profile, shared, trakt, pending, tab = tabs[0];
 const waiting = new Map();
 let faceIDEnabled = false;
@@ -88,6 +92,7 @@ async function device(action, data = {}) {
 }
 function screen(title, showNav = Boolean(profile)) {
   ++screenRevision;
+  main.classList.remove("profile-screen");
   main.replaceChildren(el("h1",title));
   nav.hidden = !showNav;
   nav.replaceChildren();
@@ -138,8 +143,9 @@ function login() {
   if (faceIDEnabled) main.append(button("Ontgrendel met Face ID", unlockWithFaceID, true));
 }
 async function profiles() {
-  profile = shared = trakt = pending = null;
+  profile = shared = trakt = pending = bingrTrakt = null;
   screen("Wie kijkt er?", false);
+  main.classList.add("profile-screen");
   let result;
   try { result = await device("get_profiles"); }
   catch (e) {
@@ -149,13 +155,18 @@ async function profiles() {
   const items = (result.profiles || []).filter(p => !p.deleted && !p.deletedAt && p.id && p.name)
     .sort((a,b) => Number(b.isMain || false) - Number(a.isMain || false) || (a.order || 0) - (b.order || 0));
   if (!items.length) main.append(el("p","Open Bingr om je eerste profiel in te stellen."));
-  const grid = el("div",null,"grid");
-  for (const p of items) grid.append(button(p.name, () => select(p)));
+  const grid = el("div",null,"profile-grid");
+  for (const p of items) {
+    const card = button("", () => select(p));
+    card.className = "profile-card";
+    card.append(profileAvatar(p),el("span",p.name));
+    grid.append(card);
+  }
   main.append(grid, button("Uitloggen", logout));
 }
 async function logout() {
   try { if (session) await bingr("/auth/v1/logout?scope=local",{},true); }
-  finally { await clearFaceID(); session = profile = shared = trakt = pending = null; login(); }
+  finally { await clearFaceID(); session = profile = shared = trakt = pending = bingrTrakt = null; login(); }
 }
 async function state(p) {
   const section = "profile." + p.id;
@@ -164,33 +175,78 @@ async function state(p) {
 }
 function lockValue(data) { return JSON.stringify([data.pinHash ?? null,data.pin ?? null]); }
 let unlocked;
+const avatarIcons = {"person.fill":"👤","person.crop.circle.fill":"👤","tv.fill":"📺","globe":"🌐","soccerball":"⚽","crown.fill":"👑","flame.fill":"🔥","gamecontroller.fill":"🎮","film.fill":"🎬","star.fill":"⭐","heart.fill":"♥","music.note":"♪","bolt.fill":"⚡","pawprint.fill":"🐾","cat.fill":"🐱","dog.fill":"🐶"};
+function profileAvatar(p) {
+  const avatar = typeof p.avatar === "object" && p.avatar ? p.avatar : {};
+  const palette = Number.isInteger(avatar.colorIndex) ? ((avatar.colorIndex % 10) + 10) % 10 : 0;
+  const icon = el("span",avatar.emoji || avatarIcons[avatar.symbol] || (p.kids ? "🙂" : "👤"),"profile-avatar avatar-" + palette);
+  icon.setAttribute("aria-hidden","true");
+  return icon;
+}
 async function select(p) {
+  const revision = screenRevision;
   const data = await state(p);
+  if (revision !== screenRevision) return;
   if (data.pinHash || data.pin) {
-    screen("Pincode voor " + p.name, false);
-    const form = el("form");
-    const pin = field(form, "Pincode", "password", "off");
+    screen("Pincode invoeren", false);
+    main.classList.add("profile-screen");
+    const form = el("form",null,"pin-form");
+    form.append(profileAvatar(p),el("p",p.name,"pin-profile-name"));
+    const wrapper = el("label","Pincode","pin-label");
+    const pin = el("input");
+    pin.type = "password";
+    pin.autocomplete = "off";
     pin.inputMode = "numeric";
     pin.pattern = "[0-9]{4,8}";
+    pin.maxLength = 8;
+    pin.required = true;
+    wrapper.append(pin);
+    const dots = el("span",null,"pin-dots");
+    dots.setAttribute("aria-hidden","true");
+    wrapper.append(dots);
+    const digits = typeof data.pin === "string" ? data.pin.length : 4;
+    function drawDigits() {
+      pin.value = pin.value.replace(/[^0-9]/g,"").slice(0,8);
+      dots.replaceChildren(...Array.from({length:Math.max(digits,pin.value.length)},(_,index) =>
+        el("i",null,index < pin.value.length ? "filled" : "")));
+    }
+    pin.oninput = drawDigits;
+    drawDigits();
     const submit = el("button","Ontgrendelen","primary");
-    form.append(submit,button("Terug",profiles));
+    form.append(wrapper,submit,button("Terug",profiles));
     form.onsubmit = async event => {
       event.preventDefault();
       submit.disabled = true;
       try {
         const valid = data.pinHash ? await native("verifyPIN",{pin:pin.value, hash:data.pinHash}) : pin.value === String(data.pin);
         if (!valid) throw new Error("Onjuiste pincode.");
-        enter(p,data);
-      } catch(e) { error(e); } finally { submit.disabled = false; pin.value = ""; }
+        if (form.isConnected) enter(p,data);
+      } catch(e) { error(e); } finally { submit.disabled = false; pin.value = ""; drawDigits(); }
     };
     main.append(form);
   } else enter(p,data);
+}
+async function loadTraktConfig(p) {
+  traktConfigFailed = false;
+  if (settings.trakt || p.kids) return;
+  try {
+    const data = await device("config");
+    if (profile !== p) return;
+    if (typeof data.traktClientID === "string" && data.traktClientID.trim()) {
+      bingrTrakt = {id:data.traktClientID.trim(),secret:typeof data.traktClientSecret === "string" ? data.traktClientSecret.trim() : ""};
+    }
+  } catch {
+    if (profile === p) traktConfigFailed = true;
+  }
 }
 function enter(p,data) {
   profile = p;
   unlocked = lockValue(data);
   shared = data;
   void render("Vandaag").catch(error);
+  void loadTraktConfig(p).then(() => {
+    if (profile === p && ["Ontdek","Profiel"].includes(tab)) return render(tab);
+  }).catch(error);
 }
 async function reload() {
   const p = profile;
@@ -352,7 +408,7 @@ function discover(history) {
     });
     results.append(el("h2","In jouw Bingr"));
     cards(matches,"Geen titels gevonden in je kijkgegevens.",results);
-    if (!settings.trakt || profile.kids) return;
+    if (!traktClient() || profile.kids) return;
     try {
       const found = await traktAPI("/search/movie,show?query=" + encodeURIComponent(query) + "&extended=full&limit=16",false);
       if (revision !== screenRevision || id !== searchCount) return;
@@ -360,7 +416,7 @@ function discover(history) {
       filters(found.map(traktItem).filter(Boolean),results,"Geen titels gevonden op Trakt.");
     } catch (e) { if (revision === screenRevision && id === searchCount) error(e); }
   };
-  if (settings.trakt && !profile.kids) {
+  if (traktClient() && !profile.kids) {
     const featured = el("div");
     const buttons = el("div",null,"filter-row");
     async function trending(type) {
@@ -445,19 +501,58 @@ async function render(name) {
     if (!profile.kids) {
       main.append(el("h2","Trakt"));
       if (trakt) main.append(el("p","Verbonden voor deze sessie"),button("Ontkoppel Track",() => { trakt = null; return render(tab); }));
-      else if (settings.trakt) main.append(button("Koppel Trakt",connectTrakt,true));
-      else main.append(el("p","Trakt is nog niet geconfigureerd voor deze build."));
+      else if (canLinkTrakt()) main.append(button("Koppel Trakt",connectTrakt,true));
+      else if (traktConfigFailed) main.append(el("p","De Trakt-instellingen konden niet worden geladen."),button("Opnieuw proberen",async () => { await loadTraktConfig(profile); await render("Profiel"); }));
+      else main.append(el("p","Bingr geeft voor dit account geen Trakt-koppeling vrij."));
     }
   }
 }
 const traktRedirect = "bingrtrack://oauth/trakt";
 async function connectTrakt() {
-  if (!settings.trakt) throw new Error("Trakt-configuratie ontbreekt in deze build.");
+  if (!settings.trakt) return connectTraktDevice();
   const pkce = await native("pkce");
   pending = {profile:profile.id, verifier:pkce.verifier,state:pkce.state};
   const params = new URLSearchParams({response_type:"code",client_id:settings.trakt,
     redirect_uri:traktRedirect,code_challenge:pkce.challenge,code_challenge_method:"S256",state:pkce.state});
   await native("open",{url:"https://trakt.tv/oauth/authorize?" + params});
+}
+async function connectTraktDevice() {
+  const current = profile, config = bingrTrakt;
+  if (!config?.id || !config.secret || !current || current.kids) throw new Error("Trakt is niet beschikbaar voor dit profiel.");
+  const base = "https://api.trakt.tv/oauth/device/";
+  const credentials = await request(base + "code",{client_id:config.id});
+  if (profile !== current) return;
+  if (!credentials?.device_code || !credentials.user_code || !(credentials.expires_in > 0))
+    throw new Error("Trakt heeft geen geldige koppelcode teruggestuurd.");
+  const panel = el("dialog",null,"detail");
+  const guidance = el("p","Voer deze code in op Trakt en geef toestemming.");
+  const code = el("strong",credentials.user_code,"device-code");
+  panel.append(el("h2","Koppel Trakt"),guidance,code,button("Open Trakt",() =>
+    native("open",{url:"https://trakt.tv/activate"}),true),button("Annuleren",() => panel.close()));
+  panel.addEventListener("close",() => panel.remove(),{once:true});
+  main.append(panel);
+  panel.showModal();
+  const expires = Date.now() + Math.min(900,credentials.expires_in)*1000;
+  let interval = Math.max(1,Number(credentials.interval) || 5)*1000;
+  while (panel.open && panel.isConnected && profile === current && Date.now() + interval < expires) {
+    await new Promise(resolve => setTimeout(resolve,interval));
+    if (!panel.open || !panel.isConnected || profile !== current) return;
+    try {
+      const result = await request(base + "token",{code:credentials.device_code,client_id:config.id,client_secret:config.secret});
+      if (!panel.open || !panel.isConnected || profile !== current) return;
+      if (!result?.access_token) throw new Error("Trakt heeft geen sessie teruggestuurd.");
+      trakt = result;
+      panel.close();
+      await render("Profiel");
+      return;
+    } catch (e) {
+      if (e.status === 400) continue;
+      if (e.status === 429) { interval += 5000; continue; }
+      guidance.textContent = ({404:"De koppelcode is ongeldig.",409:"Deze code is al gebruikt.",410:"De koppelcode is verlopen.",418:"De koppeling is geweigerd."})[e.status] || e.message;
+      return;
+    }
+  }
+  if (panel.open) guidance.textContent = "De koppelcode is verlopen. Sluit dit venster en probeer het opnieuw.";
 }
 window.oauth = async raw => {
   try {
@@ -499,7 +594,7 @@ async function addToTrakt(path,item) {
 }
 async function traktAPI(path, authenticated = true, payload = null) {
   try {
-    return await request("https://api.trakt.tv" + path,payload,{"trakt-api-version":"2","trakt-api-key":settings.trakt,
+    return await request("https://api.trakt.tv" + path,payload,{"trakt-api-version":"2","trakt-api-key":traktClient(),
       ...(authenticated ? {Authorization:"Bearer " + trakt.access_token} : {})});
   } catch (e) {
     if (authenticated && e.status === 401) { trakt = null; await render("Profiel"); }
@@ -538,6 +633,7 @@ async function unlockWithFaceID() {
   } finally { unlocking = false; }
 }
 async function launch() {
+  document.documentElement.dataset.platform = window.TrackNative ? "android" : "apple";
   const delay = new Promise(resolve => setTimeout(resolve,3500));
   try {
     const value = await native("config");

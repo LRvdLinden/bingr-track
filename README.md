@@ -16,3 +16,5 @@ De workflow is handmatig opnieuw te starten na het instellen van de variabelen.
 ## Gelijke builds
 
 Apple en Android gebruiken hetzelfde versiebestand en dezelfde HTML-, CSS-, JavaScript- en splashbestanden uit `web/`. De CI controleert de inhoud en de versie van beide gebouwde apps voordat ze de downloadbestanden uploadt.
+
+Wanneer er geen eigen Trakt-client-ID is opgegeven, gebruikt Track na het inloggen de Trakt-configuratie die Bingr voor het account beschikbaar stelt. Koppel met een tijdelijke apparaatcode. Track schrijft geen Trakt-tokens naar Bingr. Houd versie en build op 1.0.0 en 1 tot een expliciete releaseverhoging.
