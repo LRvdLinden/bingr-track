@@ -147,7 +147,8 @@ public final class TrackActivity extends Activity {
         if (!"https".equals(url.getProtocol()) || !("api.trakt.tv".equals(url.getHost()) || url.getHost().equals(bingrHost)))
             throw new IllegalArgumentException();
         String method = message.getString("method");
-        if (!"GET".equals(method) && !"POST".equals(method)) throw new IllegalArgumentException();
+        boolean stopCheckin = "DELETE".equals(method) && "api.trakt.tv".equals(url.getHost()) && "/checkin".equals(url.getPath());
+        if (!"GET".equals(method) && !"POST".equals(method) && !stopCheckin) throw new IllegalArgumentException();
         boolean isAvatar = url.getHost().equals(bingrHost) && "GET".equals(method)
             && url.getPath().startsWith("/storage/v1/object/authenticated/avatars/") && url.getPath().endsWith(".jpg");
         HttpsURLConnection connection = (HttpsURLConnection) url.openConnection();

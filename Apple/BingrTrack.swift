@@ -152,7 +152,9 @@ final class TrackBridge: NSObject, ObservableObject, WKScriptMessageHandler, WKN
     private func send(_ body: [String: Any], _ id: Int) {
         guard let raw = body["url"] as? String, let url = URL(string: raw), url.scheme == "https",
               let host = url.host, [URL(string: setting("BingrURL"))?.host, "api.trakt.tv"].contains(host),
-              let method = body["method"] as? String, ["GET", "POST"].contains(method) else { fail(id); return }
+              let method = body["method"] as? String,
+              ["GET", "POST"].contains(method) || (method == "DELETE" && host == "api.trakt.tv" && url.path == "/checkin")
+        else { fail(id); return }
         var request = URLRequest(url: url, timeoutInterval: 25)
         request.httpMethod = method
         for (name, value) in body["headers"] as? [String: String] ?? [:] { request.setValue(value, forHTTPHeaderField: name) }
