@@ -1,0 +1,4 @@
+BINGR_SUPABASE_URL =
+BINGR_SUPABASE_PUBLISHABLE_KEY =
+TRACK_TRAKT_CLIENT_ID =
+#include? "Config.local.xcconfig"

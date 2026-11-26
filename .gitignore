@@ -1,0 +1,5 @@
+Config.local.xcconfig
+BingrTrack.xcodeproj/
+.gradle/
+**/build/
+.DS_Store

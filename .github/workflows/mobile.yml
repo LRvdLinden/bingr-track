@@ -1,0 +1,53 @@
+name: Mobile builds
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  BINGR_SUPABASE_URL: ${{ vars.BINGR_SUPABASE_URL }}
+  BINGR_SUPABASE_PUBLISHABLE_KEY: ${{ vars.BINGR_SUPABASE_PUBLISHABLE_KEY }}
+  TRACK_TRAKT_CLIENT_ID: ${{ vars.TRACK_TRAKT_CLIENT_ID }}
+
+jobs:
+  apple:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate project
+        run: |
+          brew install xcodegen
+          python3 -c 'import os; keys=("BINGR_SUPABASE_URL","BINGR_SUPABASE_PUBLISHABLE_KEY","TRACK_TRAKT_CLIENT_ID"); print("\n".join(k + " = " + os.environ[k].replace("://", ":$()/"+"/") for k in keys))' > Config.local.xcconfig
+          xcodegen generate
+      - name: Compile iOS and iPadOS
+        run: xcodebuild -project BingrTrack.xcodeproj -scheme BingrTrack -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build -quiet
+      - name: Package Xcode project
+        run: zip -rq Bingr-Track-Xcode.zip BingrTrack.xcodeproj Apple web Info.plist project.yml Config.xcconfig Config.local.xcconfig README.md
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Bingr-Track-Xcode
+          path: Bingr-Track-Xcode.zip
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - run: sdkmanager 'platforms;android-35'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.13'
+      - name: Compile installable APK
+        working-directory: android
+        run: gradle --no-daemon assembleDebug
+      - run: cp android/app/build/outputs/apk/debug/app-debug.apk Bingr-Track-Android.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Bingr-Track-Android
+          path: Bingr-Track-Android.apk
