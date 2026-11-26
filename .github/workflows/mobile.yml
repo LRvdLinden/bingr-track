@@ -117,7 +117,17 @@ jobs:
           export APK_KEY_PASSWORD="${APK_KEY_PASSWORD:-$APK_KEYSTORE_PASSWORD}"
           sdk="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
           apksigner="$sdk/build-tools/35.0.0/apksigner"
-          args=(--ks "$keystore" --ks-pass env:APK_KEYSTORE_PASSWORD --key-pass env:APK_KEY_PASSWORD)
+          format=$(od -An -tx1 -N4 "$keystore" | tr -d ' \n')
+          case "$format" in
+            feedfeed) type=JKS ;;
+            30*) type=PKCS12 ;;
+            *) echo "::error::APK_KEY is not a Base64-encoded JKS or PKCS12 keystore."; exit 1 ;;
+          esac
+          if ! keytool -list -keystore "$keystore" -storetype "$type" -storepass:env APK_KEYSTORE_PASSWORD >/dev/null 2>&1; then
+            echo "::error::The keystore could not be opened with APK_KEYSTORE_PASSWORD."
+            exit 1
+          fi
+          args=(--ks "$keystore" --ks-type "$type" --ks-pass env:APK_KEYSTORE_PASSWORD --key-pass env:APK_KEY_PASSWORD)
           if [ -n "$APK_KEY_ALIAS" ]; then args+=(--ks-key-alias "$APK_KEY_ALIAS"); fi
           "$apksigner" sign "${args[@]}" --out Bingr-Track-Android.apk android/app/build/outputs/apk/debug/app-debug.apk
           certificates=$("$apksigner" verify --print-certs Bingr-Track-Android.apk)
