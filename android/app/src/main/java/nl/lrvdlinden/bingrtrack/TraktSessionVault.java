@@ -47,7 +47,7 @@ final class TraktSessionVault {
         }
         if ("saveTraktSession".equals(action)) {
             byte[] token = message.getString("data").getBytes(StandardCharsets.UTF_8);
-            if (token.length > 8192) return false;
+            if (token.length > 65536) return false;
             cipher.init(Cipher.ENCRYPT_MODE,key());
             cipher.updateAAD(scope.getBytes(StandardCharsets.UTF_8));
             byte[] iv = cipher.getIV();

@@ -13,24 +13,35 @@ env:
   TRACK_TRAKT_CLIENT_ID: ${{ vars.TRACK_TRAKT_CLIENT_ID }}
 
 jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+      - name: Syntaxis en unittests
+        run: |
+          for f in web/*.js; do node --check "$f"; done
+          node --test test/*.test.js
   wordmark:
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Render the Bingr iOS wordmark
         run: |
           swiftc -parse-as-library tools/RenderBingrWordmark.swift -o "$RUNNER_TEMP/render-wordmark"
           "$RUNNER_TEMP/render-wordmark" web/bingr-wordmark.png
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: Bingr-wordmark
           path: web/bingr-wordmark.png
   apple:
-    needs: wordmark
+    needs: [tests, wordmark]
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: Bingr-wordmark
           path: web
@@ -65,22 +76,26 @@ jobs:
           value=$(/usr/libexec/PlistBuddy -c 'Print :BingrURL' "$plist")
           [[ "$value" =~ ^https://[a-zA-Z0-9.-]+/?$ ]]
           /usr/libexec/PlistBuddy -c 'Print :BingrPublishableKey' "$plist" | grep -qE '^(sb_publishable_|eyJ)'
-      - name: Package Xcode project
-        run: zip -rq Bingr-Track-Xcode.zip BingrTrack.xcodeproj Apple web Info.plist project.yml TrackVersion.xcconfig Config.xcconfig Config.local.xcconfig README.md tools/RenderBingrWordmark.swift
-      - uses: actions/upload-artifact@v4
+      # Buildpakketten staan nooit onversleuteld op GitHub (de repo is openbaar): alleen versleuteld artefact.
+      - name: Package Xcode project (encrypted)
+        run: |
+          zip -rq Bingr-Track-Xcode.zip BingrTrack.xcodeproj Apple web Info.plist project.yml TrackVersion.xcconfig Config.xcconfig README.md tools/RenderBingrWordmark.swift
+          tools/seal_package.sh Bingr-Track-Xcode.zip sealed
+          rm -f Bingr-Track-Xcode.zip
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: Bingr-Track-Xcode
-          path: Bingr-Track-Xcode.zip
+          name: Bingr-Track-Xcode-versleuteld
+          path: sealed/
   android:
-    needs: wordmark
+    needs: [tests, wordmark]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: Bingr-wordmark
           path: web
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
         with:
           distribution: temurin
           java-version: '17'
@@ -91,7 +106,7 @@ jobs:
             manager=$(find "$sdk/cmdline-tools" -path '*/bin/sdkmanager' -print -quit)
             "$manager" 'platforms;android-35' 'build-tools;35.0.0'
           fi
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
         with:
           gradle-version: '8.13'
       - name: Compile installable APK
@@ -161,7 +176,11 @@ jobs:
           if actual != expected:
               raise SystemExit("The APK does not contain the exact shared web assets.")
           PY
-      - uses: actions/upload-artifact@v4
+      - name: Encrypt APK
+        run: |
+          tools/seal_package.sh Bingr-Track-Android.apk sealed
+          rm -f Bingr-Track-Android.apk
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: Bingr-Track-Android
-          path: Bingr-Track-Android.apk
+          name: Bingr-Track-Android-versleuteld
+          path: sealed/

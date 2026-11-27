@@ -24,7 +24,7 @@ enum TraktSessionVault {
             let status = SecItemDelete(query as CFDictionary)
             return status == errSecSuccess || status == errSecItemNotFound
         case "saveTraktSession":
-            guard let token, token.utf8.count <= 8192 else { return false }
+            guard let token, token.utf8.count <= 65536 else { return false }
             let bytes = Data(token.utf8)
             let updated = SecItemUpdate(query as CFDictionary, [kSecValueData as String: bytes] as CFDictionary)
             if updated == errSecSuccess { return true }
