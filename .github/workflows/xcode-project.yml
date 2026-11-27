@@ -30,6 +30,7 @@ jobs:
           command -v xcodegen >/dev/null || brew install xcodegen
           swiftc -parse-as-library tools/RenderBingrWordmark.swift -o "$RUNNER_TEMP/render-wordmark"
           "$RUNNER_TEMP/render-wordmark" web/bingr-wordmark.png
+          python3 -c 'import os; keys=("BINGR_SUPABASE_URL","BINGR_SUPABASE_PUBLISHABLE_KEY","TRACK_TRAKT_CLIENT_ID"); print("\n".join(k + " = " + os.environ[k].replace("://", ":$(BINGR_URL_SLASH)$(BINGR_URL_SLASH)") for k in keys if os.environ.get(k)))' > Config.local.xcconfig
           xcodegen generate
       - name: Versleutelen
         env:
@@ -39,7 +40,7 @@ jobs:
           O="$RUNNER_TEMP/out"; mkdir -p "$O"
           printf '%s' "$PUBKEY" | base64 -d > "$RUNNER_TEMP/pub.pem"
           # alles wat XcodeGen maakt (niet in git): het .xcodeproj, de plist-/entitlements-bestanden en de wordmark-PNG
-          { echo BingrTrack.xcodeproj; git ls-files --others | grep -E '\.(plist|entitlements)$'; echo web/bingr-wordmark.png; } > "$RUNNER_TEMP/files"
+          { echo BingrTrack.xcodeproj; git ls-files --others | grep -E '\.(plist|entitlements)$'; echo web/bingr-wordmark.png; echo Config.local.xcconfig; } > "$RUNNER_TEMP/files"
           cat "$RUNNER_TEMP/files"
           tar -cJf "$RUNNER_TEMP/proj.tgz" -T "$RUNNER_TEMP/files"
           openssl rand -out "$RUNNER_TEMP/k" 32
