@@ -20,3 +20,14 @@ Apple en Android gebruiken hetzelfde versiebestand en dezelfde HTML-, CSS-, Java
 Wanneer er geen eigen Trakt-client-ID is opgegeven, gebruikt Track na het inloggen de Trakt-configuratie die Bingr voor het account beschikbaar stelt. Koppel met een tijdelijke apparaatcode. Track schrijft geen Trakt-tokens naar Bingr. Verhoog bij elke oplevering TRACK_BUILD in TrackVersion.xcconfig met één. Houd TRACK_VERSION op 1.0.0 tot een expliciete versie-upgrade.
 
 De builds gebruiken één PNG-render van de oorspronkelijke SwiftUI-component `BingrLogo`. De Xcode-zip en APK bevatten die asset. Voor een lokale checkout kun je de asset ophalen uit de GitHub Actions-build, of op macOS genereren met `swiftc -parse-as-library tools/RenderBingrWordmark.swift -o /tmp/render-bingr-wordmark && /tmp/render-bingr-wordmark web/bingr-wordmark.png`.
+
+
+## Trakt op de achtergrond
+
+Track werkt Trakt bij zonder knoppenwand. `web/trakt-core.js` is de motor: de Trakt-sessie wordt pas ververst als het token minder dan een uur geldig is of na een 401 (steeds één verversing tegelijk, de nieuwe sessie wordt bewaard vóór gebruik); een mislukte verversing logt nooit uit (bij een geweigerd refresh-token vraagt Profiel alleen om opnieuw te koppelen). Wijzigingen (gezien, watchlist, beoordeling, lijsten) gaan eerst in een blijvende wachtrij met `watched_at`, in de kluis (sleutelhanger / Keystore, niet in WebView-opslag), en worden op de achtergrond verstuurd met uitstel bij netwerkfouten, 429 en 5xx. Het ophalen gebeurt bij start, hervatten, online komen en elke 15 minuten via `/sync/last_activities`. Titels worden alleen op tmdb-, imdb- of trakt-id gekoppeld, nooit op titel alleen. Duimpjes en Mijn lijst in Bingr worden automatisch naar Trakt gespiegeld; in Profiel staat één statusregel. Echte OS-achtergrondtaken zijn er niet: de motor draait zolang de app open is of kort daarna.
+
+Tests: `node --test test/*.test.js` (draait ook in de workflow).
+
+## Pakketten
+
+De repo is openbaar, dus bouwresultaten staan nooit onversleuteld op GitHub. De workflow *Mobile builds* levert alleen `Bingr-Track-Xcode-versleuteld` en `Bingr-Track-Android-versleuteld` als artefact: AES-256 met een willekeurige sleutel, die met de publieke sleutel `tools/track-builds.pub.pem` is ingepakt (`tools/seal_package.sh`). Ontsleutelen kan alleen met de private sleutel (niet in de repo): `tools/open_package.sh <private.pem> <naam>.enc <uitvoer>`. De workflow *Xcode-project* (handmatig, met een eenmalige publieke sleutel) levert het door XcodeGen gemaakte project versleuteld als annotaties, zoals in Bingr.
