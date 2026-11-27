@@ -8,6 +8,8 @@ settings:
     TARGETED_DEVICE_FAMILY: "1,2"
     SUPPORTS_MACCATALYST: NO
     SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: NO
+    DEVELOPMENT_TEAM: EU3UY476T6
+    CODE_SIGN_STYLE: Automatic
 targets:
   BingrTrack:
     type: application
@@ -24,6 +26,7 @@ targets:
       base:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         PRODUCT_BUNDLE_IDENTIFIER: nl.lrvdlinden.bingrtrack
+        PRODUCT_NAME: BingrTrack
         MARKETING_VERSION: $(TRACK_VERSION)
         CURRENT_PROJECT_VERSION: $(TRACK_BUILD)
     info:
@@ -32,6 +35,8 @@ targets:
         CFBundleDisplayName: Bingr Track
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        ITSAppUsesNonExemptEncryption: false
+        LSApplicationCategoryType: public.app-category.entertainment
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
